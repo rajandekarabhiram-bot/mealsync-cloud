@@ -66,8 +66,8 @@ def render_dashboard():
     try:
         font_title = ImageFont.truetype(FONT_BOLD, 18)
         font_header = ImageFont.truetype(FONT_BOLD, 14)
-        # Changed font_time to FONT_REGULAR so agenda text is normal, not bold
-        font_time = ImageFont.truetype(FONT_REGULAR, 13)
+        # Increased font_time size from 13 to 15 so it's normal-sized and readable
+        font_time = ImageFont.truetype(FONT_REGULAR, 15)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
         font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
         font_footer = ImageFont.truetype(FONT_REGULAR, 12)
@@ -145,11 +145,11 @@ def render_dashboard():
 
     agenda_y = agendaHeaderY + 24
     draw.text((rightX, agenda_y), str(data.get("agenda1_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=17)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 16, rightMaxWidth, font_marathi, 0, line_height=17)
 
     agenda_y += 4
     draw.text((rightX, agenda_y), str(data.get("agenda2_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=17)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 16, rightMaxWidth, font_marathi, 0, line_height=17)
 
     prepHeaderY = max(agenda_y + 12, taskHeaderY)
     draw.rectangle([rightX, prepHeaderY, rightX + rightWidth, prepHeaderY + 20], fill=0)
