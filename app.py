@@ -66,7 +66,6 @@ def render_dashboard():
     try:
         font_title = ImageFont.truetype(FONT_BOLD, 18)
         font_header = ImageFont.truetype(FONT_BOLD, 14)
-        # Increased font_time size from 13 to 15 so it's normal-sized and readable
         font_time = ImageFont.truetype(FONT_REGULAR, 15)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
         font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
@@ -102,16 +101,23 @@ def render_dashboard():
     draw.text((leftX + 6, menuHeaderY + 3), "TODAY'S MENU", font=font_header, fill=255)
 
     current_y = menuHeaderY + 24
-    draw.text((leftX, current_y), "BREAKFAST", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
+    
+    # BREAKFAST HIGHLIGHTED BANNER
+    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
+    draw.text((leftX + 4, current_y + 2), "BREAKFAST", font=font_label, fill=255)
+    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
 
-    current_y += 4
-    draw.text((leftX, current_y), "LUNCH", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
+    current_y += 6
+    # LUNCH HIGHLIGHTED BANNER
+    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
+    draw.text((leftX + 4, current_y + 2), "LUNCH", font=font_label, fill=255)
+    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
 
-    current_y += 4
-    draw.text((leftX, current_y), "DINNER", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
+    current_y += 6
+    # DINNER HIGHLIGHTED BANNER
+    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
+    draw.text((leftX + 4, current_y + 2), "DINNER", font=font_label, fill=255)
+    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
 
     taskHeaderY = max(current_y + 8, 195)
     draw.rectangle([leftX, taskHeaderY, leftX + leftWidth, taskHeaderY + 20], fill=0)
