@@ -66,7 +66,8 @@ def render_dashboard():
     try:
         font_title = ImageFont.truetype(FONT_BOLD, 18)
         font_header = ImageFont.truetype(FONT_BOLD, 14)
-        font_time = ImageFont.truetype(FONT_BOLD, 13)
+        # Changed font_time to FONT_REGULAR so agenda text is normal, not bold
+        font_time = ImageFont.truetype(FONT_REGULAR, 13)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
         font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
         font_footer = ImageFont.truetype(FONT_REGULAR, 12)
@@ -156,7 +157,7 @@ def render_dashboard():
 
     draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=19)
 
-    # FOOTER (Centered, concise, using header/bold styling font)
+    # FOOTER
     draw.line([(0, 276), (400, 276)], fill=0, width=1)
     footer_text = '"Patience in cooking is the finest seasoning."'
     try:
