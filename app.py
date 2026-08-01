@@ -7,14 +7,14 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Your updated Google Apps Script Web App URL
+# Your active Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_REGULAR = os.path.join(BASE_DIR, "NotoSansDevanagari-Regular.ttf")
 FONT_BOLD = os.path.join(BASE_DIR, "NotoSansDevanagari-Bold.ttf")
 
-def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height=19):
+def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height=20):
     words = str(text).split(" ")
     lines = []
     current_line = ""
@@ -68,7 +68,8 @@ def render_dashboard():
         font_header = ImageFont.truetype(FONT_BOLD, 14)
         font_time = ImageFont.truetype(FONT_BOLD, 13)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
-        font_marathi = ImageFont.truetype(FONT_REGULAR, 15)
+        # Optimized larger font size for maximum e-paper clarity
+        font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
         font_footer = ImageFont.truetype(FONT_REGULAR, 12)
     except:
         font_title = font_header = font_time = font_label = font_marathi = font_footer = ImageFont.load_default()
@@ -102,17 +103,17 @@ def render_dashboard():
 
     current_y = menuHeaderY + 24
     draw.text((leftX, current_y), "BREAKFAST", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=18)
+    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
 
     current_y += 4
     draw.text((leftX, current_y), "LUNCH", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=18)
+    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
 
     current_y += 4
     draw.text((leftX, current_y), "DINNER", font=font_label, fill=0)
-    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=18)
+    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, current_y + 14, leftMaxWidth, font_marathi, 0, line_height=19)
 
-    taskHeaderY = max(current_y + 8, 190)
+    taskHeaderY = max(current_y + 8, 195)
     draw.rectangle([leftX, taskHeaderY, leftX + leftWidth, taskHeaderY + 20], fill=0)
     draw.text((leftX + 6, taskHeaderY + 3), "KITCHEN TASKS", font=font_header, fill=255)
 
@@ -131,7 +132,7 @@ def render_dashboard():
     draw.text((leftX + 20, t2_y), str(data.get("task2", "")), font=font_marathi, fill=0)
 
     dividerX = 248
-    draw.line([(dividerX, 36), (dividerX, 270)], fill=0, width=1)
+    draw.line([(dividerX, 36), (dividerX, 278)], fill=0, width=1)
 
     # RIGHT COLUMN
     rightX = 260
@@ -144,21 +145,21 @@ def render_dashboard():
 
     agenda_y = agendaHeaderY + 24
     draw.text((rightX, agenda_y), str(data.get("agenda1_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=16)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=17)
 
     agenda_y += 4
     draw.text((rightX, agenda_y), str(data.get("agenda2_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=16)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 15, rightMaxWidth, font_marathi, 0, line_height=17)
 
     prepHeaderY = max(agenda_y + 12, taskHeaderY)
     draw.rectangle([rightX, prepHeaderY, rightX + rightWidth, prepHeaderY + 20], fill=0)
     draw.text((rightX + 6, prepHeaderY + 3), "PREP ALERT", font=font_header, fill=255)
 
-    draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=18)
+    draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=19)
 
-    # FOOTER
-    draw.line([(0, 270), (400, 270)], fill=0, width=1)
-    draw.text((12, 275), '"Patience in cooking is the finest seasoning."', font=font_footer, fill=0)
+    # FOOTER (Shifted down slightly to provide ample spacing)
+    draw.line([(0, 278), (400, 278)], fill=0, width=1)
+    draw.text((12, 283), '"Patience in cooking is the finest seasoning."', font=font_footer, fill=0)
 
     # UNIFORM STROKE THRESHOLD FIX
     img_inverted_grayscale = ImageOps.invert(img)
