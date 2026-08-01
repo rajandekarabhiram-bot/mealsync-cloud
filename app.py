@@ -7,10 +7,8 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Your Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxroRao7ruKprKxpK3VIeP2uHbysBPp2IEDs9MhIzG9JdbPVXSatA746tBwXFhZdVay/exec"
 
-# Robust absolute pathing for font files on GitHub/Render
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_REGULAR = os.path.join(BASE_DIR, "NotoSansDevanagari-Regular.ttf")
 FONT_BOLD = os.path.join(BASE_DIR, "NotoSansDevanagari-Bold.ttf")
@@ -56,8 +54,7 @@ def render_dashboard():
             "prep": "भिजवून ठेवा"
         }
 
-    default_date = datetime.now().strftime("%a, %d %b %Y").upper()
-    live_date = data.get("date", default_date)
+    live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
 
     img = Image.new("L", (400, 300), 255)
     draw = ImageDraw.Draw(img)
