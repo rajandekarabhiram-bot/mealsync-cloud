@@ -18,7 +18,7 @@ COPY requirements.txt .
 # Install standard requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
-# FORCE Pillow to compile from source to bind to the text-shaping engine
+# FORCE Pillow to install and compile from source without a strict version number
 RUN pip install --no-cache-dir --no-binary pillow pillow
 
 COPY . .
