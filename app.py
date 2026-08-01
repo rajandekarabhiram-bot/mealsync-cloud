@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Your active Google Apps Script Web App URL
-GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxroRao7ruKprKxpK3VIeP2uHbysBPp2IEDs9MhIzG9JdbPVXSatA746tBwXFhZdVay/exec"
+GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_REGULAR = os.path.join(BASE_DIR, "NotoSansDevanagari-Regular.ttf")
