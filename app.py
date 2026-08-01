@@ -42,6 +42,19 @@ def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height
         current_y += line_height
     return current_y
 
+def draw_tight_label(draw, text, x, y, font):
+    """Draws a solid black highlight box tightly fitted around the specific label word."""
+    try:
+        bbox = font.getbbox(text)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    except:
+        tw = len(text) * 6
+        th = 10
+    draw.rectangle([x, y, x + tw + 6, y + th + 4], fill=0)
+    draw.text((x + 3, y + 2), text, font=font, fill=255)
+    return y + th + 4
+
 @app.route("/", methods=["GET", "HEAD"])
 def render_dashboard():
     if request.method == "HEAD":
@@ -69,9 +82,8 @@ def render_dashboard():
         font_time = ImageFont.truetype(FONT_REGULAR, 15)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
         font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
-        font_footer = ImageFont.truetype(FONT_REGULAR, 12)
     except:
-        font_title = font_header = font_time = font_label = font_marathi = font_footer = ImageFont.load_default()
+        font_title = font_header = font_time = font_label = font_marathi = ImageFont.load_default()
 
     draw.rectangle([0, 0, 399, 299], outline=0, width=2)
 
@@ -102,22 +114,19 @@ def render_dashboard():
 
     current_y = menuHeaderY + 24
     
-    # BREAKFAST HIGHLIGHTED BANNER
-    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
-    draw.text((leftX + 4, current_y + 2), "BREAKFAST", font=font_label, fill=255)
-    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
+    # BREAKFAST (Tight Highlight)
+    box_end_y = draw_tight_label(draw, "BREAKFAST", leftX, current_y, font_label)
+    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
 
     current_y += 6
-    # LUNCH HIGHLIGHTED BANNER
-    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
-    draw.text((leftX + 4, current_y + 2), "LUNCH", font=font_label, fill=255)
-    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
+    # LUNCH (Tight Highlight)
+    box_end_y = draw_tight_label(draw, "LUNCH", leftX, current_y, font_label)
+    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
 
     current_y += 6
-    # DINNER HIGHLIGHTED BANNER
-    draw.rectangle([leftX, current_y, leftX + 85, current_y + 16], fill=0)
-    draw.text((leftX + 4, current_y + 2), "DINNER", font=font_label, fill=255)
-    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, current_y + 19, leftMaxWidth, font_marathi, 0, line_height=19)
+    # DINNER (Tight Highlight)
+    box_end_y = draw_tight_label(draw, "DINNER", leftX, current_y, font_label)
+    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
 
     taskHeaderY = max(current_y + 8, 195)
     draw.rectangle([leftX, taskHeaderY, leftX + leftWidth, taskHeaderY + 20], fill=0)
@@ -138,7 +147,7 @@ def render_dashboard():
     draw.text((leftX + 20, t2_y), str(data.get("task2", "")), font=font_marathi, fill=0)
 
     dividerX = 248
-    draw.line([(dividerX, 36), (dividerX, 276)], fill=0, width=1)
+    draw.line([(dividerX, 36), (dividerX, 295)], fill=0, width=1)
 
     # RIGHT COLUMN
     rightX = 260
@@ -162,17 +171,6 @@ def render_dashboard():
     draw.text((rightX + 6, prepHeaderY + 3), "PREP ALERT", font=font_header, fill=255)
 
     draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=19)
-
-    # FOOTER
-    draw.line([(0, 276), (400, 276)], fill=0, width=1)
-    footer_text = '"Patience in cooking is the finest seasoning."'
-    try:
-        f_bbox = font_header.getbbox(footer_text)
-        f_width = f_bbox[2] - f_bbox[0]
-    except:
-        f_width = len(footer_text) * 7
-    footer_x = (400 - f_width) // 2
-    draw.text((footer_x, 280), footer_text, font=font_header, fill=0)
 
     # UNIFORM STROKE THRESHOLD FIX
     img_inverted_grayscale = ImageOps.invert(img)
