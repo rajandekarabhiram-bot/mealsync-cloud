@@ -68,7 +68,6 @@ def render_dashboard():
         font_header = ImageFont.truetype(FONT_BOLD, 14)
         font_time = ImageFont.truetype(FONT_BOLD, 13)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
-        # Optimized larger font size for maximum e-paper clarity
         font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
         font_footer = ImageFont.truetype(FONT_REGULAR, 12)
     except:
@@ -132,7 +131,7 @@ def render_dashboard():
     draw.text((leftX + 20, t2_y), str(data.get("task2", "")), font=font_marathi, fill=0)
 
     dividerX = 248
-    draw.line([(dividerX, 36), (dividerX, 278)], fill=0, width=1)
+    draw.line([(dividerX, 36), (dividerX, 276)], fill=0, width=1)
 
     # RIGHT COLUMN
     rightX = 260
@@ -157,9 +156,16 @@ def render_dashboard():
 
     draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=19)
 
-    # FOOTER (Shifted down slightly to provide ample spacing)
-    draw.line([(0, 278), (400, 278)], fill=0, width=1)
-    draw.text((12, 283), '"Patience in cooking is the finest seasoning."', font=font_footer, fill=0)
+    # FOOTER (Centered, concise, using header/bold styling font)
+    draw.line([(0, 276), (400, 276)], fill=0, width=1)
+    footer_text = '"Patience in cooking is the finest seasoning."'
+    try:
+        f_bbox = font_header.getbbox(footer_text)
+        f_width = f_bbox[2] - f_bbox[0]
+    except:
+        f_width = len(footer_text) * 7
+    footer_x = (400 - f_width) // 2
+    draw.text((footer_x, 280), footer_text, font=font_header, fill=0)
 
     # UNIFORM STROKE THRESHOLD FIX
     img_inverted_grayscale = ImageOps.invert(img)
