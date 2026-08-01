@@ -7,7 +7,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Your active Google Apps Script Web App URL
+# Your updated Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +47,6 @@ def render_dashboard():
     if request.method == "HEAD":
         return "OK", 200
 
-    # Increased timeout to 20 seconds to prevent unnecessary fallbacks on slow Google responses
     try:
         response = requests.get(GOOGLE_SCRIPT_URL, timeout=20)
         data = response.json()
@@ -69,7 +68,6 @@ def render_dashboard():
         font_header = ImageFont.truetype(FONT_BOLD, 14)
         font_time = ImageFont.truetype(FONT_BOLD, 13)
         font_label = ImageFont.truetype(FONT_BOLD, 10)
-        # Optimized font size for crisp e-paper readability
         font_marathi = ImageFont.truetype(FONT_REGULAR, 15)
         font_footer = ImageFont.truetype(FONT_REGULAR, 12)
     except:
@@ -162,8 +160,11 @@ def render_dashboard():
     draw.line([(0, 270), (400, 270)], fill=0, width=1)
     draw.text((12, 275), '"Patience in cooking is the finest seasoning."', font=font_footer, fill=0)
 
+    # UNIFORM STROKE THRESHOLD FIX
     img_inverted_grayscale = ImageOps.invert(img)
-    final_img = img_inverted_grayscale.convert("1", dither=Image.NONE)
+    threshold = 160
+    img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
+    final_img = img_thresholded.convert("1", dither=Image.NONE)
 
     user_agent = request.headers.get('User-Agent', '')
     
