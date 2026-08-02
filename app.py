@@ -19,7 +19,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSansMono-Bold.ttf")
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 
 FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 if not os.path.exists(FONT_MARATHI_PATH):
@@ -110,20 +110,6 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
         current_y += line_height
 
 
-def draw_section_pill(draw, text, x, y, font):
-    """Draws prominent English header pill tag and returns its ending X coordinate."""
-    try:
-        bbox = font.getbbox(text)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-    except:
-        tw = len(text) * 18
-        th = 28
-    draw.rectangle([x, y, x + tw + 24, y + th + 12], fill=0)
-    draw.text((x + 12, y + 6), text, font=font, fill=255)
-    return x + tw + 24  # Returns ending X position for inline layout
-
-
 @app.route("/", methods=["GET", "HEAD"])
 def render_dashboard():
     if request.method == "HEAD":
@@ -153,9 +139,9 @@ def render_dashboard():
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
             eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 28)   # Header Tags
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 28)# Sidebar Section Labels
         except:
-            eng_logo = eng_date = eng_pill = ImageFont.load_default()
+            eng_logo = eng_date = eng_section = ImageFont.load_default()
 
         # Canvas Outer Frame
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
@@ -179,67 +165,81 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # INLINE MEAL SLOTS (Marathi text starts beside Pill Tag)
+        # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 72 to 600)
+        # Section labels left-aligned at X=24 to match "MealSync"
         # ---------------------------------------------------------
-        right_margin = 24
+        sidebar_w = 230
+        draw.rectangle([0, 72, sidebar_w, 600], fill=0)
 
-        # --- SLOT 1: BREAKFAST (Slot Y: 88 to 198) ---
-        pill_end_x = draw_section_pill(draw, "BREAKFAST", 24, 88, eng_pill)
-        text_x1 = pill_end_x + 16
-        avail_w1 = 800 - text_x1 - right_margin
+        # Section Labels inside Black Sidebar (White Text, fill=255)
+        draw.text((24, 110), "BREAKFAST", font=eng_section, fill=255)
+        draw.text((24, 230), "LUNCH", font=eng_section, fill=255)
+        draw.text((24, 350), "DINNER", font=eng_section, fill=255)
+        draw.text((24, 480), "TASKS", font=eng_section, fill=255)
+
+        # ---------------------------------------------------------
+        # HORIZONTAL ROW DIVIDERS Across Display
+        # ---------------------------------------------------------
+        # Row 1 Divider (Breakfast / Lunch)
+        draw.line([(0, 195), (sidebar_w, 195)], fill=255, width=2)
+        draw.line([(sidebar_w, 195), (800, 195)], fill=0, width=2)
+
+        # Row 2 Divider (Lunch / Dinner)
+        draw.line([(0, 315), (sidebar_w, 315)], fill=255, width=2)
+        draw.line([(sidebar_w, 315), (800, 315)], fill=0, width=2)
+
+        # Row 3 Divider (Dinner / Kitchen Tasks)
+        draw.line([(0, 450), (sidebar_w, 450)], fill=255, width=3)
+        draw.line([(sidebar_w, 450), (800, 450)], fill=0, width=3)
+
+        # ---------------------------------------------------------
+        # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
+        # Black Text fill=0 on White Background fill=255
+        # ---------------------------------------------------------
+        right_x = sidebar_w + 16  # 246
+        content_w = 800 - right_x - 24  # 530
+
+        # --- SLOT 1: BREAKFAST (Y: 92 to 185) ---
         draw_autofit_text(
             draw, str(data.get("breakfast", "")), 
-            x=text_x1, y=88, max_width=avail_w1, max_lines=2, 
+            x=right_x, y=92, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
             max_size=38, min_size=26
         )
-        draw.line([(0, 198), (800, 198)], fill=0, width=2)
 
-        # --- SLOT 2: LUNCH (Slot Y: 210 to 320) ---
-        pill_end_x = draw_section_pill(draw, "LUNCH", 24, 210, eng_pill)
-        text_x2 = pill_end_x + 16
-        avail_w2 = 800 - text_x2 - right_margin
+        # --- SLOT 2: LUNCH (Y: 212 to 305) ---
         draw_autofit_text(
             draw, str(data.get("lunch", "")), 
-            x=text_x2, y=210, max_width=avail_w2, max_lines=2, 
+            x=right_x, y=212, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
             max_size=38, min_size=26
         )
-        draw.line([(0, 320), (800, 320)], fill=0, width=2)
 
-        # --- SLOT 3: DINNER (Slot Y: 332 to 442) ---
-        pill_end_x = draw_section_pill(draw, "DINNER", 24, 332, eng_pill)
-        text_x3 = pill_end_x + 16
-        avail_w3 = 800 - text_x3 - right_margin
+        # --- SLOT 3: DINNER (Y: 332 to 435) ---
         draw_autofit_text(
             draw, str(data.get("dinner", "")), 
-            x=text_x3, y=332, max_width=avail_w3, max_lines=2, 
+            x=right_x, y=332, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
             max_size=38, min_size=26
         )
 
-        # ---------------------------------------------------------
-        # FOOTER: KITCHEN TASKS (Unified ProFont Header)
-        # ---------------------------------------------------------
-        draw.line([(0, 448), (800, 448)], fill=0, width=3)
+        # --- SLOT 4: KITCHEN TASKS (Reduced Height Footer) ---
+        col1_x = right_x
+        col2_x = right_x + 270
+        task_col_w = 250
 
-        # Kitchen Tasks Header Pill
-        draw_section_pill(draw, "KITCHEN TASKS", 24, 462, eng_pill)
-
-        col_y = 524
         t1_str = "• " + str(data.get("task1", ""))
         t2_str = "• " + str(data.get("task2", ""))
 
-        # Two equal columns auto-fitted
         draw_autofit_text(
             draw, t1_str, 
-            x=24, y=col_y, max_width=360, max_lines=1, 
+            x=col1_x, y=480, max_width=task_col_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
             max_size=34, min_size=24
         )
         draw_autofit_text(
             draw, t2_str, 
-            x=410, y=col_y, max_width=360, max_lines=1, 
+            x=col2_x, y=480, max_width=task_col_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
             max_size=34, min_size=24
         )
