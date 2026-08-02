@@ -12,8 +12,8 @@ app = Flask(__name__)
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-//FONT_REGULAR = os.path.join(BASE_DIR, "NotoSansDevanagari_Condensed-ExtraBold.ttf")
-FONT_BOLD = os.path.join(BASE_DIR, "NotoSansDevanagari_Condensed-ExtraBold.ttf")
+FONT_REGULAR = os.path.join(BASE_DIR, "Teko-Regular.ttf")
+FONT_BOLD = os.path.join(BASE_DIR, "Teko-Bold.ttf")
 
 def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color=0, line_height=20):
     words = str(text).split(" ")
