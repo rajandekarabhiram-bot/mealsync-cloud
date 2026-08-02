@@ -1,6 +1,7 @@
 import os
 import requests
 import traceback
+import re
 from flask import Flask, send_file, request
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import io
@@ -14,13 +15,17 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# LOCKED FONT PIPELINE (Noto Sans & Mukta)
+# FONT CONFIGURATION
+# English: ProFont / Monospace TTF
+# Marathi: Mukta Regular/Medium (Clean, non-smudged rendering)
 # ---------------------------------------------------------
-FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "NotoSans-Bold.ttf")
+FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSansMono-Bold.ttf")
 
-FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
+if not os.path.exists(FONT_MARATHI_PATH):
+    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 
 # Safe Filter Selection for Pillow Version Compatibility
 try:
@@ -32,9 +37,25 @@ except AttributeError:
         LANCZOS_FILTER = Image.BICUBIC
 
 
-def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_height=46):
-    """Draws multi-line Marathi content with enforced stroke width for uniform thickness."""
-    words = str(text).split(" ")
+def is_ascii(text):
+    """Detects if a string consists purely of English / ASCII characters."""
+    return bool(re.match(r'^[\x00-\x7F]+$', str(text).strip()))
+
+
+def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=44):
+    """
+    Auto-detects language:
+    - Renders English text with the English Monospace Font
+    - Renders Marathi text with Mukta Font (without smudged outlines)
+    """
+    text_str = str(text).strip()
+    if not text_str:
+        return y
+
+    # Select appropriate font based on language detection
+    font = eng_font if is_ascii(text_str) else marathi_font
+
+    words = text_str.split(" ")
     lines = []
     current_line = ""
     
@@ -57,21 +78,13 @@ def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_h
         
     current_y = y
     for line in lines:
-        # stroke_width=1 enforces equal pixel density across all meal strings
-        draw.text(
-            (x, current_y), 
-            line, 
-            font=font, 
-            fill=fill_color, 
-            stroke_width=1, 
-            stroke_fill=fill_color
-        )
+        draw.text((x, current_y), line, font=font, fill=fill_color)
         current_y += line_height
     return current_y
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws compact dark tag banners for BREAKFAST, LUNCH, and DINNER."""
+    """Draws compact dark tag banners using the English ProFont."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
@@ -111,11 +124,12 @@ def render_dashboard():
 
         # 3. Load Fonts
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 36)
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 24)
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 34)
+            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 22)
             eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 18)
+            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 26)
         except:
-            eng_logo = eng_header = eng_pill = ImageFont.load_default()
+            eng_logo = eng_header = eng_pill = eng_body = ImageFont.load_default()
 
         try:
             marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 38)
@@ -127,13 +141,13 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (English Logo & Date)
+        # APP HEADER BAR (ProFont for Logo & Date)
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 64], fill=0)
-        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((280, 18), live_date, font=eng_header, fill=255)
+        draw.text((24, 14), "MealSync", font=eng_logo, fill=255)
+        draw.text((280, 20), live_date, font=eng_header, fill=255)
 
-        # WiFi & Battery Status Indicators
+        # WiFi & Battery Indicators
         wifiX, wifiY = 220, 24
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
@@ -145,28 +159,28 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # MEAL SECTIONS (Equalized Dividers & Uniform Stroke Weight)
+        # MEAL SECTIONS (Smart Language Detection & Clean Mukta Font)
         # ---------------------------------------------------------
         full_width = 752
         current_y = 76
 
         # BREAKFAST
         pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
+        current_y = draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
         current_y += 10
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # LUNCH
         current_y += 10
         pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
+        current_y = draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
         current_y += 10
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # DINNER
         current_y += 10
         pill_end = draw_section_pill(draw, "DINNER", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
+        current_y = draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
 
         # ---------------------------------------------------------
         # DYNAMIC FOOTER: KITCHEN TASKS
@@ -180,8 +194,11 @@ def render_dashboard():
 
         # Two spacious columns for tasks
         col_y = footer_top + 52
-        draw.text((24, col_y), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0, stroke_width=1, stroke_fill=0)
-        draw.text((410, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0, stroke_width=1, stroke_fill=0)
+        t1_str = "• " + str(data.get("task1", ""))
+        t2_str = "• " + str(data.get("task2", ""))
+
+        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=36)
+        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=36)
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
@@ -189,8 +206,8 @@ def render_dashboard():
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
-        # Binary thresholding for pure 1-bit monochrome output
-        threshold = 135
+        # Clean threshold for sharp 1-bit text without bleeding
+        threshold = 155
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
 
