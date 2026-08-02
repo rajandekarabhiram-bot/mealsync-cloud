@@ -11,10 +11,10 @@ app = Flask(__name__)
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FONT_REGULAR = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
+FONT_REGULAR = os.path.join(BASE_DIR, "NotoSansDevanagari-Regular.ttf")
 FONT_BOLD = os.path.join(BASE_DIR, "NotoSansDevanagari-Bold.ttf")
 
-def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height=20):
+def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height=40):
     words = str(text).split(" ")
     lines = []
     current_line = ""
@@ -25,7 +25,7 @@ def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height
             bbox = font.getbbox(test_line)
             w = bbox[2] - bbox[0]
         except:
-            w = len(test_line) * 7  
+            w = len(test_line) * 14  
             
         if w <= max_width:
             current_line = test_line
@@ -43,17 +43,17 @@ def draw_wrapped_text(draw, text, x, y, max_width, font, fill_color, line_height
     return current_y
 
 def draw_tight_label(draw, text, x, y, font):
-    """Draws a solid black highlight box tightly fitted around the specific label word."""
+    """Draws a solid black highlight box tightly fitted around the specific label word (scaled for 800x600)."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
     except:
-        tw = len(text) * 6
-        th = 10
-    draw.rectangle([x, y, x + tw + 6, y + th + 4], fill=0)
-    draw.text((x + 3, y + 2), text, font=font, fill=255)
-    return y + th + 4
+        tw = len(text) * 12
+        th = 20
+    draw.rectangle([x, y, x + tw + 12, y + th + 8], fill=0)
+    draw.text((x + 6, y + 4), text, font=font, fill=255)
+    return y + th + 8
 
 @app.route("/", methods=["GET", "HEAD"])
 def render_dashboard():
@@ -66,114 +66,112 @@ def render_dashboard():
     except Exception as e:
         data = {
             "breakfast": "पुरणपोळी", "lunch": "भाजी पोळी", "dinner": "खिचडी",
-            "task1": "दूध आणा", "task1_done": True, "task2": "भाजी धुवा", "task2_done": False,
-            "agenda1_time": "10:00 AM", "agenda1_desc": "Grocery Run", "agenda2_time": "04:30 PM", "agenda2_desc": "Tea with Mom",
+            "task1": "दूध आणा", "task2": "भाजी धुवा",
+            "agenda1_time": "10:00 AM", "agenda1_desc": "Grocery Run", 
+            "agenda2_time": "04:30 PM", "agenda2_desc": "Tea with Mom",
             "prep": "भिजवून ठेवा"
         }
 
     live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
 
-    img = Image.new("L", (400, 300), 255)
+    # --- SUPERSAMPLING: Create 2x Canvas (800x600) ---
+    img = Image.new("L", (800, 600), 255)
     draw = ImageDraw.Draw(img)
 
     try:
-        font_title = ImageFont.truetype(FONT_BOLD, 18)
-        font_header = ImageFont.truetype(FONT_BOLD, 14)
-        font_time = ImageFont.truetype(FONT_REGULAR, 15)
-        font_label = ImageFont.truetype(FONT_BOLD, 10)
-        font_marathi = ImageFont.truetype(FONT_REGULAR, 16)
+        font_title = ImageFont.truetype(FONT_BOLD, 36)
+        font_header = ImageFont.truetype(FONT_BOLD, 28)
+        font_time = ImageFont.truetype(FONT_REGULAR, 30)
+        font_label = ImageFont.truetype(FONT_BOLD, 20)
+        font_marathi = ImageFont.truetype(FONT_REGULAR, 32)
     except:
         font_title = font_header = font_time = font_label = font_marathi = ImageFont.load_default()
 
-    draw.rectangle([0, 0, 399, 299], outline=0, width=2)
+    draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
     # HEADER
-    draw.rectangle([0, 0, 400, 36], fill=0)
-    draw.text((12, 6), "MealSync", font=font_title, fill=255)
-    draw.text((140, 10), live_date, font=font_header, fill=255)
+    draw.rectangle([0, 0, 800, 72], fill=0)
+    draw.text((24, 12), "MealSync", font=font_title, fill=255)
+    draw.text((280, 20), live_date, font=font_header, fill=255)
 
-    # BATTERY / WIFI ICONS
-    wifiX, wifiY = 110, 15
-    draw.rectangle([wifiX, wifiY + 6, wifiX + 2, wifiY + 10], fill=255)
-    draw.rectangle([wifiX + 4, wifiY + 3, wifiX + 6, wifiY + 10], fill=255)
-    draw.rectangle([wifiX + 8, wifiY, wifiX + 10, wifiY + 10], fill=255)
+    # BATTERY / WIFI ICONS (Scaled 2x)
+    wifiX, wifiY = 220, 30
+    draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
+    draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
+    draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
 
-    batX, batY = 370, 12
-    draw.rectangle([batX, batY, batX + 24, batY + 12], outline=255, fill=0)
-    draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 9], fill=255)
-    draw.rectangle([batX + 2, batY + 2, batX + 20, batY + 10], fill=255)
+    batX, batY = 740, 24
+    draw.rectangle([batX, batY, batX + 48, batY + 24], outline=255, fill=0)
+    draw.rectangle([batX + 48, batY + 6, batX + 52, batY + 18], fill=255)
+    draw.rectangle([batX + 4, batY + 4, batX + 40, batY + 20], fill=255)
 
     # LEFT COLUMN
-    leftX = 12
-    leftWidth = 228
-    leftMaxWidth = 215
+    leftX = 24
+    leftWidth = 456
+    leftMaxWidth = 430
 
-    menuHeaderY = 44
-    draw.rectangle([leftX, menuHeaderY, leftX + leftWidth, menuHeaderY + 20], fill=0)
-    draw.text((leftX + 6, menuHeaderY + 3), "TODAY'S MENU", font=font_header, fill=255)
+    menuHeaderY = 88
+    draw.rectangle([leftX, menuHeaderY, leftX + leftWidth, menuHeaderY + 40], fill=0)
+    draw.text((leftX + 12, menuHeaderY + 6), "TODAY'S MENU", font=font_header, fill=255)
 
-    current_y = menuHeaderY + 24
+    current_y = menuHeaderY + 48
     
-    # BREAKFAST (Tight Highlight)
+    # BREAKFAST
     box_end_y = draw_tight_label(draw, "BREAKFAST", leftX, current_y, font_label)
-    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
+    current_y = draw_wrapped_text(draw, str(data.get("breakfast", "")), leftX, box_end_y + 6, leftMaxWidth, font_marathi, 0, line_height=38)
 
-    current_y += 6
-    # LUNCH (Tight Highlight)
+    current_y += 12
+    # LUNCH
     box_end_y = draw_tight_label(draw, "LUNCH", leftX, current_y, font_label)
-    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
+    current_y = draw_wrapped_text(draw, str(data.get("lunch", "")), leftX, box_end_y + 6, leftMaxWidth, font_marathi, 0, line_height=38)
 
-    current_y += 6
-    # DINNER (Tight Highlight)
+    current_y += 12
+    # DINNER
     box_end_y = draw_tight_label(draw, "DINNER", leftX, current_y, font_label)
-    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, box_end_y + 3, leftMaxWidth, font_marathi, 0, line_height=19)
+    current_y = draw_wrapped_text(draw, str(data.get("dinner", "")), leftX, box_end_y + 6, leftMaxWidth, font_marathi, 0, line_height=38)
 
-    taskHeaderY = max(current_y + 8, 195)
-    draw.rectangle([leftX, taskHeaderY, leftX + leftWidth, taskHeaderY + 20], fill=0)
-    draw.text((leftX + 6, taskHeaderY + 3), "KITCHEN TASKS", font=font_header, fill=255)
+    taskHeaderY = max(current_y + 16, 390)
+    draw.rectangle([leftX, taskHeaderY, leftX + leftWidth, taskHeaderY + 40], fill=0)
+    draw.text((leftX + 12, taskHeaderY + 6), "KITCHEN TASKS", font=font_header, fill=255)
 
-    task1_done = data.get("task1_done", False)
-    t1_y = taskHeaderY + 26
-    draw.rectangle([leftX, t1_y + 2, leftX + 12, t1_y + 14], outline=0, width=1)
-    if task1_done:
-        draw.rectangle([leftX + 3, t1_y + 5, leftX + 9, t1_y + 11], fill=0)
-    draw.text((leftX + 20, t1_y), str(data.get("task1", "")), font=font_marathi, fill=0)
+    t1_y = taskHeaderY + 52
+    draw.rectangle([leftX, t1_y + 4, leftX + 24, t1_y + 28], outline=0, width=2)
+    draw.text((leftX + 40, t1_y), str(data.get("task1", "")), font=font_marathi, fill=0)
 
-    task2_done = data.get("task2_done", False)
-    t2_y = t1_y + 22
-    draw.rectangle([leftX, t2_y + 2, leftX + 12, t2_y + 14], outline=0, width=1)
-    if task2_done:
-        draw.rectangle([leftX + 3, t2_y + 5, leftX + 9, t2_y + 11], fill=0)
-    draw.text((leftX + 20, t2_y), str(data.get("task2", "")), font=font_marathi, fill=0)
+    t2_y = t1_y + 44
+    draw.rectangle([leftX, t2_y + 4, leftX + 24, t2_y + 28], outline=0, width=2)
+    draw.text((leftX + 40, t2_y), str(data.get("task2", "")), font=font_marathi, fill=0)
 
-    dividerX = 248
-    draw.line([(dividerX, 36), (dividerX, 295)], fill=0, width=1)
+    dividerX = 496
+    draw.line([(dividerX, 72), (dividerX, 590)], fill=0, width=2)
 
     # RIGHT COLUMN
-    rightX = 260
-    rightWidth = 128
-    rightMaxWidth = 118
+    rightX = 520
+    rightWidth = 256
+    rightMaxWidth = 236
 
-    agendaHeaderY = 44
-    draw.rectangle([rightX, agendaHeaderY, rightX + rightWidth, agendaHeaderY + 20], fill=0)
-    draw.text((rightX + 6, agendaHeaderY + 3), "AGENDA", font=font_header, fill=255)
+    agendaHeaderY = 88
+    draw.rectangle([rightX, agendaHeaderY, rightX + rightWidth, agendaHeaderY + 40], fill=0)
+    draw.text((rightX + 12, agendaHeaderY + 6), "AGENDA", font=font_header, fill=255)
 
-    agenda_y = agendaHeaderY + 24
+    agenda_y = agendaHeaderY + 48
     draw.text((rightX, agenda_y), str(data.get("agenda1_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 16, rightMaxWidth, font_marathi, 0, line_height=17)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda1_desc", "")), rightX, agenda_y + 32, rightMaxWidth, font_marathi, 0, line_height=34)
 
-    agenda_y += 4
+    agenda_y += 8
     draw.text((rightX, agenda_y), str(data.get("agenda2_time", "")), font=font_time, fill=0)
-    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 16, rightMaxWidth, font_marathi, 0, line_height=17)
+    agenda_y = draw_wrapped_text(draw, str(data.get("agenda2_desc", "")), rightX, agenda_y + 32, rightMaxWidth, font_marathi, 0, line_height=34)
 
-    prepHeaderY = max(agenda_y + 12, taskHeaderY)
-    draw.rectangle([rightX, prepHeaderY, rightX + rightWidth, prepHeaderY + 20], fill=0)
-    draw.text((rightX + 6, prepHeaderY + 3), "PREP ALERT", font=font_header, fill=255)
+    prepHeaderY = max(agenda_y + 24, taskHeaderY)
+    draw.rectangle([rightX, prepHeaderY, rightX + rightWidth, prepHeaderY + 40], fill=0)
+    draw.text((rightX + 12, prepHeaderY + 6), "PREP ALERT", font=font_header, fill=255)
 
-    draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 25, rightMaxWidth, font_marathi, 0, line_height=19)
+    draw_wrapped_text(draw, str(data.get("prep", "")), rightX, prepHeaderY + 50, rightMaxWidth, font_marathi, 0, line_height=38)
 
-    # UNIFORM STROKE THRESHOLD FIX
-    img_inverted_grayscale = ImageOps.invert(img)
+    # --- DOWNSCALE & THRESHOLD (800x600 -> 400x300) ---
+    img_downscaled = img.resize((400, 300), Image.Resampling.LANCZOS)
+    img_inverted_grayscale = ImageOps.invert(img_downscaled)
+    
     threshold = 160
     img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
     final_img = img_thresholded.convert("1", dither=Image.NONE)
