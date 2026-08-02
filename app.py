@@ -13,12 +13,14 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Font Configuration (Uses Yantramanav/Mukta for Marathi and Inter/DejaVu for English)
-FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Yantramanav-Bold.ttf")
-if not os.path.exists(FONT_MARATHI_PATH):
-    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+# Font Configuration
+FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "Inter-Bold.ttf")
+if not os.path.exists(FONT_ENGLISH_PATH):
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
 
-FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
+FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+if not os.path.exists(FONT_MARATHI_PATH):
+    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Yantramanav-Bold.ttf")
 
 try:
     LANCZOS_FILTER = Image.Resampling.LANCZOS
@@ -28,111 +30,157 @@ except AttributeError:
     except AttributeError:
         LANCZOS_FILTER = Image.BICUBIC
 
+
+def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_height=44):
+    """Draws multi-line Marathi content with generous line spacing."""
+    words = str(text).split(" ")
+    lines = []
+    current_line = ""
+    
+    for word in words:
+        test_line = current_line + " " + word if current_line else word
+        try:
+            bbox = font.getbbox(test_line)
+            w = bbox[2] - bbox[0]
+        except:
+            w = len(test_line) * 18  
+            
+        if w <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+    if current_line:
+        lines.append(current_line)
+        
+    current_y = y
+    for line in lines:
+        draw.text((x, current_y), line, font=font, fill=fill_color)
+        current_y += line_height
+    return current_y
+
+
+def draw_section_pill(draw, text, x, y, font):
+    """Draws compact dark tag banners for BREAKFAST, LUNCH, and DINNER."""
+    try:
+        bbox = font.getbbox(text)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    except:
+        tw = len(text) * 12
+        th = 18
+    draw.rectangle([x, y, x + tw + 18, y + th + 8], fill=0)
+    draw.text((x + 9, y + 4), text, font=font, fill=255)
+    return y + th + 8
+
+
 @app.route("/", methods=["GET", "HEAD"])
 def render_dashboard():
     if request.method == "HEAD":
         return "OK", 200
 
     try:
+        # 1. Fetch Google Sheet Data
         try:
             response = requests.get(GOOGLE_SCRIPT_URL, timeout=20)
             data = response.json()
         except Exception:
             data = {
-                "breakfast": "पुरणपोळी", "lunch": "भाजी पोळी", "dinner": "खिचडी",
+                "breakfast": "पुरणपोळी, कटाची आमटी, भजी", 
+                "lunch": "वरण भात, चपाती, वांग्याची भाजी, कोशिंबीर, पापड", 
+                "dinner": "मसाला खिचडी, कढी, पापड",
                 "task1": "दूध आणा", "task2": "भाजी धुवा",
-                "agenda1_time": "10:00 AM", "agenda1_desc": "Grocery Run", 
-                "agenda2_time": "04:30 PM", "agenda2_desc": "Tea with Mom",
                 "prep": "भिजवून ठेवा"
             }
 
         live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
 
-        # 2x High-Res Canvas (800x600)
+        # 2. Canvas Setup (800x600 Supersampled)
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # Fonts scaled up for maximum legibility
+        # 3. Load Fonts
         try:
-            eng_title = ImageFont.truetype(FONT_ENGLISH_PATH, 38)
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 26)
-            eng_label = ImageFont.truetype(FONT_ENGLISH_PATH, 22)
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 36)
+            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 24)
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 18)
         except:
-            eng_title = eng_header = eng_label = ImageFont.load_default()
+            eng_logo = eng_header = eng_pill = ImageFont.load_default()
 
         try:
-            marathi_large = ImageFont.truetype(FONT_MARATHI_PATH, 46) # Extra Large Meals
-            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 36)   # Tasks & Prep
+            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 42) # Large, crisp meal font
+            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 32)  # Footer tasks font
         except:
-            marathi_large = marathi_sub = ImageFont.load_default()
+            marathi_meal = marathi_sub = ImageFont.load_default()
 
         # Canvas Outer Border
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
-        # 1. TOP HEADER BAR
-        draw.rectangle([0, 0, 800, 72], fill=0)
-        draw.text((24, 14), "MealSync", font=eng_title, fill=255)
-        draw.text((300, 20), live_date, font=eng_header, fill=255)
+        # ---------------------------------------------------------
+        # APP HEADER BAR
+        # ---------------------------------------------------------
+        draw.rectangle([0, 0, 800, 64], fill=0)
+        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
+        draw.text((280, 18), live_date, font=eng_header, fill=255)
 
-        # Header Icons (Battery & WiFi)
-        wifiX, wifiY = 240, 30
+        # WiFi & Battery Status Indicators
+        wifiX, wifiY = 220, 24
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
 
-        batX, batY = 730, 24
+        batX, batY = 730, 20
         draw.rectangle([batX, batY, batX + 46, batY + 24], outline=255, fill=0)
         draw.rectangle([batX + 46, batY + 6, batX + 50, batY + 18], fill=255)
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
-        # 2. MEAL SECTION (WIDE HORIZONTAL ROWS)
-        meal_y = 96
-        
-        # BREAKFAST ROW
-        draw.rectangle([24, meal_y, 180, meal_y + 40], fill=0)
-        draw.text((34, meal_y + 8), "BREAKFAST", font=eng_label, fill=255)
-        draw.text((200, meal_y - 4), str(data.get("breakfast", "")), font=marathi_large, fill=0)
+        # ---------------------------------------------------------
+        # FULL-WIDTH MEAL SECTION (750px Wide Line Space)
+        # ---------------------------------------------------------
+        full_width = 752
+        current_y = 76
 
-        # LUNCH ROW
-        meal_y += 76
-        draw.rectangle([24, meal_y, 180, meal_y + 40], fill=0)
-        draw.text((54, meal_y + 8), "LUNCH", font=eng_label, fill=255)
-        draw.text((200, meal_y - 4), str(data.get("lunch", "")), font=marathi_large, fill=0)
+        # BREAKFAST
+        pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
+        current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
+        current_y += 10
+        draw.line([(24, current_y), (776, current_y)], fill=0, width=2)
 
-        # DINNER ROW
-        meal_y += 76
-        draw.rectangle([24, meal_y, 180, meal_y + 40], fill=0)
-        draw.text((48, meal_y + 8), "DINNER", font=eng_label, fill=255)
-        draw.text((200, meal_y - 4), str(data.get("dinner", "")), font=marathi_large, fill=0)
+        # LUNCH
+        current_y += 10
+        pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
+        current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
+        current_y += 10
+        draw.line([(24, current_y), (776, current_y)], fill=0, width=2)
 
-        # HORIZONTAL SECTION SEPARATING LINE
-        draw.line([(0, 340), (800, 340)], fill=0, width=3)
+        # DINNER
+        current_y += 10
+        pill_end = draw_section_pill(draw, "DINNER", 24, current_y, eng_pill)
+        current_y = draw_wrapped_marathi(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
 
-        # 3. BOTTOM SPLIT PANEL (KITCHEN TASKS | AGENDA & PREP)
-        # Left Panel: Tasks
-        draw.rectangle([24, 356, 380, 396], fill=0)
-        draw.text((36, 362), "KITCHEN TASKS", font=eng_header, fill=255)
-        draw.text((24, 412), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0)
-        draw.text((24, 468), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0)
+        # ---------------------------------------------------------
+        # BOTTOM FOOTER: KITCHEN TASKS & PREP ALERT
+        # ---------------------------------------------------------
+        footer_top = 485
+        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=4)
 
-        # Vertical Divider Line for Bottom Split
-        draw.line([(400, 340), (400, 590)], fill=0, width=3)
+        # Footer Header Tag
+        draw.rectangle([24, footer_top + 10, 776, footer_top + 42], fill=0)
+        draw.text((36, footer_top + 14), "TASKS & PREP ALERT", font=eng_header, fill=255)
 
-        # Right Panel: Agenda & Prep Alert
-        draw.rectangle([420, 356, 776, 396], fill=0)
-        draw.text((432, 362), "AGENDA & PREP", font=eng_header, fill=255)
+        # 3 Equal Columns across the bottom strip
+        col_y = footer_top + 52
+        draw.text((24, col_y), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0)
+        draw.text((280, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0)
+        draw.text((530, col_y), "Alert: " + str(data.get("prep", "")), font=marathi_sub, fill=0)
 
-        agenda_txt = f"{data.get('agenda1_time', '')} {data.get('agenda1_desc', '')}"
-        draw.text((420, 412), agenda_txt, font=marathi_sub, fill=0)
-
-        prep_txt = f"Alert: {data.get('prep', '')}"
-        draw.text((420, 468), prep_txt, font=marathi_sub, fill=0)
-
-        # 4. DOWNSCALE & SHARPEN THRESHOLD
+        # ---------------------------------------------------------
+        # DOWNSCALE & MONOCHROME THRESHOLDING
+        # ---------------------------------------------------------
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
-        # Binary thresholding for pure 1-bit monochrome output
         threshold = 145
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
@@ -152,6 +200,7 @@ def render_dashboard():
         print("CRITICAL SERVER ERROR:")
         traceback.print_exc()
         return f"Server Error: {str(err)}", 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
