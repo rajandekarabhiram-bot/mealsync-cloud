@@ -15,38 +15,30 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# UNIFIED FONT PATH DEFINITIONS WITH PROPER FALLBACKS
+# UNIFIED FONT PATH DEFINITIONS WITH ROBUST FALLBACKS
 # ---------------------------------------------------------
-ENGLISH_FONT_CANDIDATES = [
-    os.path.join(BASE_DIR, "ProFont.ttf"),
-    os.path.join(BASE_DIR, "ProFont.ttf"),
-    os.path.join(BASE_DIR, "ProFont.ttf"),
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-]
+def resolve_font_path(candidates):
+    for font_name in candidates:
+        # Check local repository folder
+        local_path = os.path.join(BASE_DIR, font_name)
+        if os.path.exists(local_path):
+            return local_path
+        # Check system TrueType directory
+        sys_path = os.path.join("/usr/share/fonts/truetype/dejavu", font_name)
+        if os.path.exists(sys_path):
+            return sys_path
+    return None
 
-FONT_ENGLISH_PATH = None
-for fpath in ENGLISH_FONT_CANDIDATES:
-    if os.path.exists(fpath):
-        FONT_ENGLISH_PATH = fpath
-        break
+FONT_ENGLISH_PATH = resolve_font_path([
+    "ProFont.ttf", 
+    "DejaVuSansMono-Bold.ttf", 
+    "DejaVuSans-Bold.ttf"
+])
 
-if not FONT_ENGLISH_PATH:
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
-
-MARATHI_FONT_CANDIDATES = [
-    os.path.join(BASE_DIR, "Mukta-Bold.ttf"),
-    os.path.join(BASE_DIR, "Mukta-Regular.ttf")
-]
-
-FONT_MARATHI_PATH = None
-for fpath in MARATHI_FONT_CANDIDATES:
-    if os.path.exists(fpath):
-        FONT_MARATHI_PATH = fpath
-        break
-
-if not FONT_MARATHI_PATH:
-    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+FONT_MARATHI_PATH = resolve_font_path([
+    "Mukta-Bold.ttf", 
+    "Mukta-Regular.ttf"
+])
 
 # Safe Filter Selection for Pillow Version Compatibility
 try:
@@ -96,7 +88,6 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
     if not text_str:
         return
 
-    # Devanagari detection: if Marathi characters exist, use Marathi font; else English font
     is_marathi = has_devanagari(text_str)
     font_path = marathi_font_path if is_marathi else eng_font_path
 
@@ -106,12 +97,12 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
 
     while current_size >= min_size:
         try:
-            test_font = ImageFont.truetype(font_path, current_size)
+            if font_path and os.path.exists(font_path):
+                test_font = ImageFont.truetype(font_path, current_size)
+            else:
+                test_font = ImageFont.load_default()
         except:
             test_font = ImageFont.load_default()
-            selected_font = test_font
-            selected_lines = [text_str]
-            break
 
         lines = get_wrapped_lines(text_str, test_font, max_width)
         if len(lines) <= max_lines:
@@ -122,7 +113,10 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
 
     if selected_font is None:
         try:
-            selected_font = ImageFont.truetype(font_path, min_size)
+            if font_path and os.path.exists(font_path):
+                selected_font = ImageFont.truetype(font_path, min_size)
+            else:
+                selected_font = ImageFont.load_default()
         except:
             selected_font = ImageFont.load_default()
         selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
@@ -162,9 +156,9 @@ def render_dashboard():
 
         # 3. Load Unified English Typography
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
-            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32)# Sidebar Section Labels
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32) if FONT_ENGLISH_PATH else ImageFont.load_default()
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
