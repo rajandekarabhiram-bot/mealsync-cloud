@@ -15,11 +15,13 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# UNIFIED FONT PATH DEFINITIONS
+# UNIFIED FONT PATH DEFINITIONS WITH PROPER FALLBACKS
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
     FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
+    if not os.path.exists(FONT_ENGLISH_PATH):
+        FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 
 FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 if not os.path.exists(FONT_MARATHI_PATH):
@@ -35,9 +37,9 @@ except AttributeError:
         LANCZOS_FILTER = Image.BICUBIC
 
 
-def is_ascii(text):
-    """Detects if a string consists purely of English / ASCII characters."""
-    return bool(re.match(r'^[\x00-\x7F]+$', str(text).strip()))
+def has_devanagari(text):
+    """Detects if a string contains any Devanagari script characters."""
+    return bool(re.search(r'[\u0900-\u097F]', str(text)))
 
 
 def get_wrapped_lines(text, font, max_width):
@@ -67,13 +69,16 @@ def get_wrapped_lines(text, font, max_width):
 def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
+    Automatically uses Marathi font if Devanagari characters exist,
+    otherwise uses English font.
     """
     text_str = str(text).strip()
     if not text_str:
         return
 
-    is_eng = is_ascii(text_str)
-    font_path = eng_font_path if is_eng else marathi_font_path
+    # Check for Devanagari presence instead of strict ASCII
+    is_marathi = has_devanagari(text_str)
+    font_path = marathi_font_path if is_marathi else eng_font_path
 
     selected_font = None
     selected_lines = []
@@ -139,7 +144,7 @@ def render_dashboard():
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
             eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32)# Sidebar Section Labels (Increased to 32)
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32)# Sidebar Section Labels
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
@@ -178,23 +183,24 @@ def render_dashboard():
         draw.text((24, 480), "TASKS", font=eng_section, fill=255)
 
         # ---------------------------------------------------------
-        # HORIZONTAL ROW DIVIDERS Across Display
+        # HORIZONTAL ROW DIVIDERS Across Display (3px thickness)
         # ---------------------------------------------------------
+        divider_w = 3
+
         # Row 1 Divider (Breakfast / Lunch)
-        draw.line([(0, 195), (sidebar_w, 195)], fill=255, width=2)
-        draw.line([(sidebar_w, 195), (800, 195)], fill=0, width=2)
+        draw.line([(0, 195), (sidebar_w, 195)], fill=255, width=divider_w)
+        draw.line([(sidebar_w, 195), (800, 195)], fill=0, width=divider_w)
 
         # Row 2 Divider (Lunch / Dinner)
-        draw.line([(0, 315), (sidebar_w, 315)], fill=255, width=2)
-        draw.line([(sidebar_w, 315), (800, 315)], fill=0, width=2)
+        draw.line([(0, 315), (sidebar_w, 315)], fill=255, width=divider_w)
+        draw.line([(sidebar_w, 315), (800, 315)], fill=0, width=divider_w)
 
         # Row 3 Divider (Dinner / Kitchen Tasks)
-        draw.line([(0, 450), (sidebar_w, 450)], fill=255, width=3)
-        draw.line([(sidebar_w, 450), (800, 450)], fill=0, width=3)
+        draw.line([(0, 450), (sidebar_w, 450)], fill=255, width=divider_w)
+        draw.line([(sidebar_w, 450), (800, 450)], fill=0, width=divider_w)
 
         # ---------------------------------------------------------
         # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
-        # Black Text fill=0 on White Background fill=255
         # ---------------------------------------------------------
         right_x = sidebar_w + 16  # 246
         content_w = 800 - right_x - 24  # 530
@@ -223,7 +229,7 @@ def render_dashboard():
             max_size=38, min_size=26
         )
 
-        # --- SLOT 4: KITCHEN TASKS (Reduced Height Footer) ---
+        # --- SLOT 4: KITCHEN TASKS ---
         col1_x = right_x
         col2_x = right_x + 270
         task_col_w = 250
