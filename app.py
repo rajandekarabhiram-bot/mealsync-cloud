@@ -15,7 +15,7 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# LOCKED FONT PIPELINE
+# FONT PATH DEFINITIONS
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
@@ -40,25 +40,18 @@ def is_ascii(text):
     return bool(re.match(r'^[\x00-\x7F]+$', str(text).strip()))
 
 
-def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=44, max_lines=2):
-    """Auto-detects language and renders uniform text within a fixed slot."""
-    text_str = str(text).strip()
-    if not text_str:
-        return y
-
-    font = eng_font if is_ascii(text_str) else marathi_font
-
-    words = text_str.split(" ")
+def get_wrapped_lines(text, font, max_width):
+    """Calculates wrapped lines for a given text, font, and maximum pixel width."""
+    words = str(text).strip().split(" ")
     lines = []
     current_line = ""
-    
     for word in words:
         test_line = current_line + " " + word if current_line else word
         try:
             bbox = font.getbbox(test_line)
             w = bbox[2] - bbox[0]
         except:
-            w = len(test_line) * 16  
+            w = len(test_line) * (font.size * 0.5)
             
         if w <= max_width:
             current_line = test_line
@@ -68,29 +61,70 @@ def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font,
             current_line = word
     if current_line:
         lines.append(current_line)
-        
-    # Cap output to 2 lines per slot to prevent layout overlap
-    lines_to_draw = lines[:max_lines]
-    
+    return lines
+
+
+def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=40, min_size=26, fill_color=0):
+    """
+    Dynamically scales down the font size until the wrapped text fits strictly 
+    within the designated line count and height budget for the row.
+    """
+    text_str = str(text).strip()
+    if not text_str:
+        return
+
+    is_eng = is_ascii(text_str)
+    font_path = eng_font_path if is_eng else marathi_font_path
+
+    selected_font = None
+    selected_lines = []
+    current_size = max_size
+
+    # Loop downward to find a font size where lines <= max_lines
+    while current_size >= min_size:
+        try:
+            test_font = ImageFont.truetype(font_path, current_size)
+        except:
+            test_font = ImageFont.load_default()
+            selected_font = test_font
+            selected_lines = [text_str]
+            break
+
+        lines = get_wrapped_lines(text_str, test_font, max_width)
+        if len(lines) <= max_lines:
+            selected_font = test_font
+            selected_lines = lines
+            break
+        current_size -= 2
+
+    # Fallback if text is extremely long
+    if selected_font is None:
+        try:
+            selected_font = ImageFont.truetype(font_path, min_size)
+        except:
+            selected_font = ImageFont.load_default()
+        selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
+
+    line_height = int(current_size * 1.22)
     current_y = y
-    for line in lines_to_draw:
-        draw.text((x, current_y), line, font=font, fill=fill_color)
+
+    for line in selected_lines[:max_lines]:
+        draw.text((x, current_y), line, font=selected_font, fill=fill_color)
         current_y += line_height
-    return current_y
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws a padded dark header pill tag for section headers."""
+    """Draws prominent, high-contrast English header tag banners with expanded padding."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
     except:
-        tw = len(text) * 16
-        th = 24
-    draw.rectangle([x, y, x + tw + 24, y + th + 12], fill=0)
-    draw.text((x + 12, y + 6), text, font=font, fill=255)
-    return y + th + 12
+        tw = len(text) * 18
+        th = 28
+    draw.rectangle([x, y, x + tw + 28, y + th + 14], fill=0)
+    draw.text((x + 14, y + 6), text, font=font, fill=255)
+    return y + th + 14
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -114,34 +148,27 @@ def render_dashboard():
 
         live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
 
-        # 2. Canvas Setup (800x600 Supersampled for e-paper)
+        # 2. Canvas Setup (800x600 Supersampled)
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts with Uniform Scaling
+        # 3. Load English Typography (Scaled Up)
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42)    # Title Logo
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 28)  # Date / Footer Title
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 26)    # Section Header Pills
-            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 34)    # English Menu Items
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
+            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 34)   # Date Header (Increased)
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Section Tags (Increased)
         except:
-            eng_logo = eng_header = eng_pill = eng_body = ImageFont.load_default()
-
-        try:
-            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 40) # Uniform Devanagari Meals
-            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 34)  # Uniform Devanagari Tasks
-        except:
-            marathi_meal = marathi_sub = ImageFont.load_default()
+            eng_logo = eng_date = eng_pill = ImageFont.load_default()
 
         # Canvas Outer Frame
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # TOP APP HEADER BAR (Y: 0 to 70)
+        # TOP APP HEADER BAR (Y: 0 to 72)
         # ---------------------------------------------------------
-        draw.rectangle([0, 0, 800, 70], fill=0)
+        draw.rectangle([0, 0, 800, 72], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((310, 20), live_date, font=eng_header, fill=255)
+        draw.text((310, 18), live_date, font=eng_date, fill=255)
 
         # WiFi & Battery Status Indicators
         wifiX, wifiY = 250, 26
@@ -155,42 +182,64 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # FIXED 2-ROW VERTICAL GRID SLOTS (752px Width)
+        # LOCKED GRID SLOTS WITH AUTOMATIC TEXT AUTO-FITTING
         # ---------------------------------------------------------
         full_width = 752
 
-        # --- SLOT 1: BREAKFAST ---
+        # --- SLOT 1: BREAKFAST (Slot Y: 80 to 200) ---
         draw_section_pill(draw, "BREAKFAST", 24, 82, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, 126, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
-        # Segregation Line with balanced top & bottom margin
+        draw_autofit_text(
+            draw, str(data.get("breakfast", "")), 
+            x=24, y=134, max_width=full_width, max_lines=2, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=40, min_size=26
+        )
         draw.line([(0, 200), (800, 200)], fill=0, width=2)
 
-        # --- SLOT 2: LUNCH ---
+        # --- SLOT 2: LUNCH (Slot Y: 210 to 330) ---
         draw_section_pill(draw, "LUNCH", 24, 212, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, 256, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
-        # Segregation Line
+        draw_autofit_text(
+            draw, str(data.get("lunch", "")), 
+            x=24, y=264, max_width=full_width, max_lines=2, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=40, min_size=26
+        )
         draw.line([(0, 330), (800, 330)], fill=0, width=2)
 
-        # --- SLOT 3: DINNER ---
+        # --- SLOT 3: DINNER (Slot Y: 340 to 460) ---
         draw_section_pill(draw, "DINNER", 24, 342, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, 386, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
+        draw_autofit_text(
+            draw, str(data.get("dinner", "")), 
+            x=24, y=394, max_width=full_width, max_lines=2, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=40, min_size=26
+        )
 
         # ---------------------------------------------------------
-        # FOOTER: KITCHEN TASKS (Fixed Slot: Y=460 to 595)
+        # FOOTER: KITCHEN TASKS (Slot Y: 460 to 595)
         # ---------------------------------------------------------
         draw.line([(0, 460), (800, 460)], fill=0, width=3)
 
-        # Footer Header Banner
-        draw.rectangle([24, 472, 776, 512], fill=0)
-        draw.text((36, 477), "KITCHEN TASKS", font=eng_header, fill=255)
+        # Kitchen Tasks Section Header (Matching English Header Tag Style)
+        draw_section_pill(draw, "KITCHEN TASKS", 24, 472, eng_pill)
 
-        # Two spacious columns for tasks
-        col_y = 526
+        col_y = 532
         t1_str = "• " + str(data.get("task1", ""))
         t2_str = "• " + str(data.get("task2", ""))
 
-        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=40, max_lines=1)
-        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=40, max_lines=1)
+        # Two spacious columns auto-fitted
+        draw_autofit_text(
+            draw, t1_str, 
+            x=24, y=col_y, max_width=360, max_lines=1, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=36, min_size=24
+        )
+        draw_autofit_text(
+            draw, t2_str, 
+            x=410, y=col_y, max_width=360, max_lines=1, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=36, min_size=24
+        )
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
@@ -198,7 +247,6 @@ def render_dashboard():
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
-        # Crisp monochrome threshold
         threshold = 150
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
