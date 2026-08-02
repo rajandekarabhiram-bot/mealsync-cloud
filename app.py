@@ -31,12 +31,9 @@ def resolve_font_path(candidates):
 
 # Checks repository for Inter, Rubik, Montserrat, Roboto, or DejaVu
 FONT_ENGLISH_PATH = resolve_font_path([
-    "Inter-Bold.ttf",
+    
     "Rubik-Bold.ttf",
-    "Montserrat-Bold.ttf",
-    "Roboto-Bold.ttf",
-    "DejaVuSans-Bold.ttf",
-    "DejaVuSansMono-Bold.ttf"
+   
 ])
 
 FONT_MARATHI_PATH = resolve_font_path([
