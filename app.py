@@ -19,7 +19,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSansMono-Bold.ttf")
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 
 FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 if not os.path.exists(FONT_MARATHI_PATH):
@@ -64,7 +64,7 @@ def get_wrapped_lines(text, font, max_width):
     return lines
 
 
-def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
+def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=44, min_size=28, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
     """
@@ -139,7 +139,7 @@ def render_dashboard():
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
             eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 28)# Sidebar Section Labels
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32)# Sidebar Section Labels (Increased from 28 to 32)
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
@@ -204,7 +204,7 @@ def render_dashboard():
             draw, str(data.get("breakfast", "")), 
             x=right_x, y=92, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=44, min_size=28
         )
 
         # --- SLOT 2: LUNCH (Y: 212 to 305) ---
@@ -212,7 +212,7 @@ def render_dashboard():
             draw, str(data.get("lunch", "")), 
             x=right_x, y=212, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=44, min_size=28
         )
 
         # --- SLOT 3: DINNER (Y: 332 to 435) ---
@@ -220,7 +220,7 @@ def render_dashboard():
             draw, str(data.get("dinner", "")), 
             x=right_x, y=332, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=44, min_size=28
         )
 
         # --- SLOT 4: KITCHEN TASKS (Reduced Height Footer) ---
