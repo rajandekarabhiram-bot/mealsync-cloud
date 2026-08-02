@@ -15,31 +15,20 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# MODERN ENGLISH VECTOR FONT PIPELINE
+# LOCKED FONT PATH DEFINITIONS
 # ---------------------------------------------------------
-def resolve_font_path(candidates):
-    for font_name in candidates:
-        # Check local repository folder
-        local_path = os.path.join(BASE_DIR, font_name)
-        if os.path.exists(local_path):
-            return local_path
-        # Check Linux system TrueType directory
-        sys_path = os.path.join("/usr/share/fonts/truetype/dejavu", font_name)
-        if os.path.exists(sys_path):
-            return sys_path
-    return None
+# 1. Header & UI Label Font: Strictly ProFont
+FONT_HEADER_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 
-# Checks repository for Inter, Rubik, Montserrat, Roboto, or DejaVu
-FONT_ENGLISH_PATH = resolve_font_path([
-    
-    "Rubik-Bold.ttf",
-   
-])
+# 2. English Menu Content Font: Strictly Rubik-Bold
+FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "Rubik-Bold.ttf")
+if not os.path.exists(FONT_ENGLISH_PATH):
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
 
-FONT_MARATHI_PATH = resolve_font_path([
-    "Mukta-Bold.ttf", 
-    "Mukta-Regular.ttf"
-])
+# 3. Marathi Menu Content Font: Mukta-Bold
+FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+if not os.path.exists(FONT_MARATHI_PATH):
+    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
 
 # Safe Filter Selection for Pillow Version Compatibility
 try:
@@ -83,7 +72,7 @@ def get_wrapped_lines(text, font, max_width):
 def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
-    Uses Marathi font if Devanagari script is detected, otherwise uses English font.
+    Uses Mukta-Bold for Devanagari text and Rubik-Bold for English text.
     """
     text_str = str(text).strip()
     if not text_str:
@@ -155,11 +144,11 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Modern English Typography
+        # 3. Load Header Typography (ProFont.ttf)
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42) if FONT_ENGLISH_PATH else ImageFont.load_default()
-            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 30) if FONT_ENGLISH_PATH else ImageFont.load_default()
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 30) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_logo = ImageFont.truetype(FONT_HEADER_PATH, 44) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+            eng_date = ImageFont.truetype(FONT_HEADER_PATH, 32) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+            eng_section = ImageFont.truetype(FONT_HEADER_PATH, 32) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
@@ -167,11 +156,11 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (Y: 0 to 72)
+        # APP HEADER BAR (Y: 0 to 72) — Uses ProFont
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 72], fill=0)
-        draw.text((24, 14), "MealSync", font=eng_logo, fill=255)
-        draw.text((310, 20), live_date, font=eng_date, fill=255)
+        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
+        draw.text((310, 18), live_date, font=eng_date, fill=255)
 
         # WiFi & Battery Status Indicators
         wifiX, wifiY = 250, 26
@@ -185,16 +174,16 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 72 to 600)
+        # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 72 to 600) — Uses ProFont
         # ---------------------------------------------------------
         sidebar_w = 230
         draw.rectangle([0, 72, sidebar_w, 600], fill=0)
 
-        # Section Labels inside Black Sidebar (White Text)
-        draw.text((24, 112), "BREAKFAST", font=eng_section, fill=255)
-        draw.text((24, 232), "LUNCH", font=eng_section, fill=255)
-        draw.text((24, 352), "DINNER", font=eng_section, fill=255)
-        draw.text((24, 482), "TASKS", font=eng_section, fill=255)
+        # Section Labels inside Black Sidebar (White ProFont Text)
+        draw.text((24, 110), "BREAKFAST", font=eng_section, fill=255)
+        draw.text((24, 230), "LUNCH", font=eng_section, fill=255)
+        draw.text((24, 350), "DINNER", font=eng_section, fill=255)
+        draw.text((24, 480), "TASKS", font=eng_section, fill=255)
 
         # ---------------------------------------------------------
         # HORIZONTAL ROW DIVIDERS Across Display (3px thickness)
@@ -215,6 +204,7 @@ def render_dashboard():
 
         # ---------------------------------------------------------
         # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
+        # English: Rubik-Bold.ttf | Marathi: Mukta-Bold.ttf
         # ---------------------------------------------------------
         right_x = sidebar_w + 16  # 246
         content_w = 800 - right_x - 24  # 530
