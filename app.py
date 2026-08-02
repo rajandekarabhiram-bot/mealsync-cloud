@@ -69,7 +69,7 @@ def get_wrapped_lines(text, font, max_width):
     return lines
 
 
-def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
+def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=46, min_size=28, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
     Uses Mukta-Bold for Devanagari text and Rubik-Bold for English text.
@@ -144,10 +144,10 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Header Typography (ProFont.ttf)
+        # 3. Load Header Typography (ProFont.ttf - Scaled Up)
         try:
-            eng_logo = ImageFont.truetype(FONT_HEADER_PATH, 44) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
-            eng_date = ImageFont.truetype(FONT_HEADER_PATH, 32) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+            eng_logo = ImageFont.truetype(FONT_HEADER_PATH, 54) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+            eng_date = ImageFont.truetype(FONT_HEADER_PATH, 38) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
             eng_section = ImageFont.truetype(FONT_HEADER_PATH, 32) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
@@ -156,14 +156,14 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (Y: 0 to 72) — Uses ProFont
+        # APP HEADER BAR (Y: 0 to 76) — ProFont (Increased Size)
         # ---------------------------------------------------------
-        draw.rectangle([0, 0, 800, 72], fill=0)
-        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((310, 18), live_date, font=eng_date, fill=255)
+        draw.rectangle([0, 0, 800, 76], fill=0)
+        draw.text((24, 8), "MealSync", font=eng_logo, fill=255)
+        draw.text((320, 16), live_date, font=eng_date, fill=255)
 
         # WiFi & Battery Status Indicators
-        wifiX, wifiY = 250, 26
+        wifiX, wifiY = 260, 26
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
@@ -174,10 +174,10 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 72 to 600) — Uses ProFont
+        # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 76 to 600)
         # ---------------------------------------------------------
         sidebar_w = 230
-        draw.rectangle([0, 72, sidebar_w, 600], fill=0)
+        draw.rectangle([0, 76, sidebar_w, 600], fill=0)
 
         # Section Labels inside Black Sidebar (White ProFont Text)
         draw.text((24, 110), "BREAKFAST", font=eng_section, fill=255)
@@ -204,33 +204,33 @@ def render_dashboard():
 
         # ---------------------------------------------------------
         # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
-        # English: Rubik-Bold.ttf | Marathi: Mukta-Bold.ttf
+        # Max Font Size increased to 46px
         # ---------------------------------------------------------
         right_x = sidebar_w + 16  # 246
         content_w = 800 - right_x - 24  # 530
 
-        # --- SLOT 1: BREAKFAST (Y: 92 to 185) ---
+        # --- SLOT 1: BREAKFAST (Y: 90 to 185) ---
         draw_autofit_text(
             draw, str(data.get("breakfast", "")), 
-            x=right_x, y=92, max_width=content_w, max_lines=2, 
+            x=right_x, y=90, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=46, min_size=28
         )
 
-        # --- SLOT 2: LUNCH (Y: 212 to 305) ---
+        # --- SLOT 2: LUNCH (Y: 210 to 305) ---
         draw_autofit_text(
             draw, str(data.get("lunch", "")), 
-            x=right_x, y=212, max_width=content_w, max_lines=2, 
+            x=right_x, y=210, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=46, min_size=28
         )
 
-        # --- SLOT 3: DINNER (Y: 332 to 435) ---
+        # --- SLOT 3: DINNER (Y: 330 to 435) ---
         draw_autofit_text(
             draw, str(data.get("dinner", "")), 
-            x=right_x, y=332, max_width=content_w, max_lines=2, 
+            x=right_x, y=330, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=46, min_size=28
         )
 
         # --- SLOT 4: KITCHEN TASKS ---
@@ -245,13 +245,13 @@ def render_dashboard():
             draw, t1_str, 
             x=col1_x, y=480, max_width=task_col_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=34, min_size=24
+            max_size=36, min_size=24
         )
         draw_autofit_text(
             draw, t2_str, 
             x=col2_x, y=480, max_width=task_col_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=34, min_size=24
+            max_size=36, min_size=24
         )
 
         # ---------------------------------------------------------
