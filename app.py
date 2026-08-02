@@ -33,7 +33,7 @@ except AttributeError:
 
 
 def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_height=46):
-    """Draws multi-line Marathi content with dynamic y-tracking and matra padding."""
+    """Draws multi-line Marathi content with enforced stroke width for uniform thickness."""
     words = str(text).split(" ")
     lines = []
     current_line = ""
@@ -57,7 +57,15 @@ def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_h
         
     current_y = y
     for line in lines:
-        draw.text((x, current_y), line, font=font, fill=fill_color)
+        # stroke_width=1 enforces equal pixel density across all meal strings
+        draw.text(
+            (x, current_y), 
+            line, 
+            font=font, 
+            fill=fill_color, 
+            stroke_width=1, 
+            stroke_fill=fill_color
+        )
         current_y += line_height
     return current_y
 
@@ -110,7 +118,7 @@ def render_dashboard():
             eng_logo = eng_header = eng_pill = ImageFont.load_default()
 
         try:
-            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 38) # Standardized Mukta Bold
+            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 38)
             marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 32)
         except:
             marathi_meal = marathi_sub = ImageFont.load_default()
@@ -137,7 +145,7 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # MEAL SECTIONS (Equal Divider Thickness = 2px)
+        # MEAL SECTIONS (Equalized Dividers & Uniform Stroke Weight)
         # ---------------------------------------------------------
         full_width = 752
         current_y = 76
@@ -146,7 +154,6 @@ def render_dashboard():
         pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
         current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
         current_y += 10
-        # Equalized divider line
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # LUNCH
@@ -154,7 +161,6 @@ def render_dashboard():
         pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
         current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
         current_y += 10
-        # Equalized divider line
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # DINNER
@@ -163,10 +169,10 @@ def render_dashboard():
         current_y = draw_wrapped_marathi(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
 
         # ---------------------------------------------------------
-        # DYNAMIC FOOTER: KITCHEN TASKS (Alert Removed)
+        # DYNAMIC FOOTER: KITCHEN TASKS
         # ---------------------------------------------------------
         footer_top = max(current_y + 16, 470)
-        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=3)
+        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=2)
 
         # Footer Header Banner
         draw.rectangle([24, footer_top + 10, 776, footer_top + 42], fill=0)
@@ -174,8 +180,8 @@ def render_dashboard():
 
         # Two spacious columns for tasks
         col_y = footer_top + 52
-        draw.text((24, col_y), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0)
-        draw.text((410, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0)
+        draw.text((24, col_y), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0, stroke_width=1, stroke_fill=0)
+        draw.text((410, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0, stroke_width=1, stroke_fill=0)
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
@@ -184,7 +190,7 @@ def render_dashboard():
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
         # Binary thresholding for pure 1-bit monochrome output
-        threshold = 145
+        threshold = 135
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
 
