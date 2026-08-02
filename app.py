@@ -100,7 +100,7 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts
+        # 3. Load Fonts (Strict Separation)
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 36)
             eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 24)
@@ -118,11 +118,11 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR
+        # APP HEADER BAR (English Font for Logo & Date)
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 64], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((280, 18), live_date, font=eng_header, fill=255)
+        draw.text((280, 18), live_date, font=eng_header, fill=255)  # Enforced English Font
 
         # WiFi & Battery Status Indicators
         wifiX, wifiY = 220, 24
@@ -136,7 +136,7 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # FULL-WIDTH MEAL SECTION (750px Wide Line Space)
+        # FULL-WIDTH MEAL SECTION (Edge-to-Edge Divider Lines)
         # ---------------------------------------------------------
         full_width = 752
         current_y = 76
@@ -144,15 +144,17 @@ def render_dashboard():
         # BREAKFAST
         pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
         current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
-        current_y += 10
-        draw.line([(24, current_y), (776, current_y)], fill=0, width=2)
+        current_y += 12
+        # Full-width edge-to-edge line
+        draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # LUNCH
         current_y += 10
         pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
         current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
-        current_y += 10
-        draw.line([(24, current_y), (776, current_y)], fill=0, width=2)
+        current_y += 12
+        # Full-width edge-to-edge line
+        draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # DINNER
         current_y += 10
