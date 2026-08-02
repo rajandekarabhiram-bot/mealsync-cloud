@@ -15,7 +15,7 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# FONT PATH DEFINITIONS
+# UNIFIED FONT PATH DEFINITIONS
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
@@ -64,10 +64,9 @@ def get_wrapped_lines(text, font, max_width):
     return lines
 
 
-def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=40, min_size=26, fill_color=0):
+def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
     """
-    Dynamically scales down the font size until the wrapped text fits strictly 
-    within the designated line count and height budget for the row.
+    Dynamically scales font size to fit text within assigned width and line budget.
     """
     text_str = str(text).strip()
     if not text_str:
@@ -80,7 +79,6 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
     selected_lines = []
     current_size = max_size
 
-    # Loop downward to find a font size where lines <= max_lines
     while current_size >= min_size:
         try:
             test_font = ImageFont.truetype(font_path, current_size)
@@ -97,7 +95,6 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
             break
         current_size -= 2
 
-    # Fallback if text is extremely long
     if selected_font is None:
         try:
             selected_font = ImageFont.truetype(font_path, min_size)
@@ -105,7 +102,7 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
             selected_font = ImageFont.load_default()
         selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
 
-    line_height = int(current_size * 1.22)
+    line_height = int(current_size * 1.20)
     current_y = y
 
     for line in selected_lines[:max_lines]:
@@ -114,7 +111,7 @@ def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, mar
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws prominent, high-contrast English header tag banners with expanded padding."""
+    """Draws prominent English header pill tag and returns its ending X coordinate."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
@@ -122,9 +119,9 @@ def draw_section_pill(draw, text, x, y, font):
     except:
         tw = len(text) * 18
         th = 28
-    draw.rectangle([x, y, x + tw + 28, y + th + 14], fill=0)
-    draw.text((x + 14, y + 6), text, font=font, fill=255)
-    return y + th + 14
+    draw.rectangle([x, y, x + tw + 24, y + th + 12], fill=0)
+    draw.text((x + 12, y + 6), text, font=font, fill=255)
+    return x + tw + 24  # Returns ending X position for inline layout
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -152,11 +149,11 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load English Typography (Scaled Up)
+        # 3. Load Unified English Typography
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
-            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 34)   # Date Header (Increased)
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Section Tags (Increased)
+            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 28)   # Header Tags
         except:
             eng_logo = eng_date = eng_pill = ImageFont.load_default()
 
@@ -164,7 +161,7 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # TOP APP HEADER BAR (Y: 0 to 72)
+        # APP HEADER BAR (Y: 0 to 72)
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 72], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
@@ -182,63 +179,69 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # LOCKED GRID SLOTS WITH AUTOMATIC TEXT AUTO-FITTING
+        # INLINE MEAL SLOTS (Marathi text starts beside Pill Tag)
         # ---------------------------------------------------------
-        full_width = 752
+        right_margin = 24
 
-        # --- SLOT 1: BREAKFAST (Slot Y: 80 to 200) ---
-        draw_section_pill(draw, "BREAKFAST", 24, 82, eng_pill)
+        # --- SLOT 1: BREAKFAST (Slot Y: 88 to 198) ---
+        pill_end_x = draw_section_pill(draw, "BREAKFAST", 24, 88, eng_pill)
+        text_x1 = pill_end_x + 16
+        avail_w1 = 800 - text_x1 - right_margin
         draw_autofit_text(
             draw, str(data.get("breakfast", "")), 
-            x=24, y=134, max_width=full_width, max_lines=2, 
+            x=text_x1, y=88, max_width=avail_w1, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=40, min_size=26
+            max_size=38, min_size=26
         )
-        draw.line([(0, 200), (800, 200)], fill=0, width=2)
+        draw.line([(0, 198), (800, 198)], fill=0, width=2)
 
-        # --- SLOT 2: LUNCH (Slot Y: 210 to 330) ---
-        draw_section_pill(draw, "LUNCH", 24, 212, eng_pill)
+        # --- SLOT 2: LUNCH (Slot Y: 210 to 320) ---
+        pill_end_x = draw_section_pill(draw, "LUNCH", 24, 210, eng_pill)
+        text_x2 = pill_end_x + 16
+        avail_w2 = 800 - text_x2 - right_margin
         draw_autofit_text(
             draw, str(data.get("lunch", "")), 
-            x=24, y=264, max_width=full_width, max_lines=2, 
+            x=text_x2, y=210, max_width=avail_w2, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=40, min_size=26
+            max_size=38, min_size=26
         )
-        draw.line([(0, 330), (800, 330)], fill=0, width=2)
+        draw.line([(0, 320), (800, 320)], fill=0, width=2)
 
-        # --- SLOT 3: DINNER (Slot Y: 340 to 460) ---
-        draw_section_pill(draw, "DINNER", 24, 342, eng_pill)
+        # --- SLOT 3: DINNER (Slot Y: 332 to 442) ---
+        pill_end_x = draw_section_pill(draw, "DINNER", 24, 332, eng_pill)
+        text_x3 = pill_end_x + 16
+        avail_w3 = 800 - text_x3 - right_margin
         draw_autofit_text(
             draw, str(data.get("dinner", "")), 
-            x=24, y=394, max_width=full_width, max_lines=2, 
+            x=text_x3, y=332, max_width=avail_w3, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=40, min_size=26
+            max_size=38, min_size=26
         )
 
         # ---------------------------------------------------------
-        # FOOTER: KITCHEN TASKS (Slot Y: 460 to 595)
+        # FOOTER: KITCHEN TASKS (Unified ProFont Header)
         # ---------------------------------------------------------
-        draw.line([(0, 460), (800, 460)], fill=0, width=3)
+        draw.line([(0, 448), (800, 448)], fill=0, width=3)
 
-        # Kitchen Tasks Section Header (Matching English Header Tag Style)
-        draw_section_pill(draw, "KITCHEN TASKS", 24, 472, eng_pill)
+        # Kitchen Tasks Header Pill
+        draw_section_pill(draw, "KITCHEN TASKS", 24, 462, eng_pill)
 
-        col_y = 532
+        col_y = 524
         t1_str = "• " + str(data.get("task1", ""))
         t2_str = "• " + str(data.get("task2", ""))
 
-        # Two spacious columns auto-fitted
+        # Two equal columns auto-fitted
         draw_autofit_text(
             draw, t1_str, 
             x=24, y=col_y, max_width=360, max_lines=1, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=36, min_size=24
+            max_size=34, min_size=24
         )
         draw_autofit_text(
             draw, t2_str, 
             x=410, y=col_y, max_width=360, max_lines=1, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=36, min_size=24
+            max_size=34, min_size=24
         )
 
         # ---------------------------------------------------------
