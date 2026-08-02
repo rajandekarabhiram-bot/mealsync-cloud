@@ -16,8 +16,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
 # FONT CONFIGURATION
-# English: ProFont / Monospace TTF
-# Marathi: Mukta Regular/Medium (Clean, non-smudged rendering)
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
@@ -43,16 +41,11 @@ def is_ascii(text):
 
 
 def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=44):
-    """
-    Auto-detects language:
-    - Renders English text with the English Monospace Font
-    - Renders Marathi text with Mukta Font (without smudged outlines)
-    """
+    """Auto-detects language and applies scaled English or Devanagari font."""
     text_str = str(text).strip()
     if not text_str:
         return y
 
-    # Select appropriate font based on language detection
     font = eng_font if is_ascii(text_str) else marathi_font
 
     words = text_str.split(" ")
@@ -84,17 +77,17 @@ def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font,
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws compact dark tag banners using the English ProFont."""
+    """Draws padded dark tag banners scaled for larger English section headers."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
     except:
-        tw = len(text) * 12
-        th = 18
-    draw.rectangle([x, y, x + tw + 18, y + th + 8], fill=0)
-    draw.text((x + 9, y + 4), text, font=font, fill=255)
-    return y + th + 8
+        tw = len(text) * 14
+        th = 22
+    draw.rectangle([x, y, x + tw + 22, y + th + 10], fill=0)
+    draw.text((x + 11, y + 5), text, font=font, fill=255)
+    return y + th + 10
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -122,12 +115,12 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts
+        # 3. Load Fonts (Increased English Font Sizes)
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 34)
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 22)
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 18)
-            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 26)
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42)    # Was 34
+            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 28)  # Was 22
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 24)    # Was 18
+            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 32)    # Was 26
         except:
             eng_logo = eng_header = eng_pill = eng_body = ImageFont.load_default()
 
@@ -141,28 +134,28 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (ProFont for Logo & Date)
+        # APP HEADER BAR (Scaled Up Logo & Date)
         # ---------------------------------------------------------
-        draw.rectangle([0, 0, 800, 64], fill=0)
-        draw.text((24, 14), "MealSync", font=eng_logo, fill=255)
-        draw.text((280, 20), live_date, font=eng_header, fill=255)
+        draw.rectangle([0, 0, 800, 70], fill=0)
+        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
+        draw.text((290, 20), live_date, font=eng_header, fill=255)
 
-        # WiFi & Battery Indicators
-        wifiX, wifiY = 220, 24
+        # WiFi & Battery Status Indicators
+        wifiX, wifiY = 230, 26
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
 
-        batX, batY = 730, 20
+        batX, batY = 730, 22
         draw.rectangle([batX, batY, batX + 46, batY + 24], outline=255, fill=0)
         draw.rectangle([batX + 46, batY + 6, batX + 50, batY + 18], fill=255)
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # MEAL SECTIONS (Smart Language Detection & Clean Mukta Font)
+        # MEAL SECTIONS
         # ---------------------------------------------------------
         full_width = 752
-        current_y = 76
+        current_y = 80
 
         # BREAKFAST
         pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
@@ -189,8 +182,8 @@ def render_dashboard():
         draw.line([(0, footer_top), (800, footer_top)], fill=0, width=2)
 
         # Footer Header Banner
-        draw.rectangle([24, footer_top + 10, 776, footer_top + 42], fill=0)
-        draw.text((36, footer_top + 14), "KITCHEN TASKS", font=eng_header, fill=255)
+        draw.rectangle([24, footer_top + 8, 776, footer_top + 44], fill=0)
+        draw.text((36, footer_top + 12), "KITCHEN TASKS", font=eng_header, fill=255)
 
         # Two spacious columns for tasks
         col_y = footer_top + 52
@@ -206,7 +199,6 @@ def render_dashboard():
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
-        # Clean threshold for sharp 1-bit text without bleeding
         threshold = 155
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
