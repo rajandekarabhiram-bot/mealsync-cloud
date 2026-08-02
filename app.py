@@ -40,8 +40,8 @@ def is_ascii(text):
     return bool(re.match(r'^[\x00-\x7F]+$', str(text).strip()))
 
 
-def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=44):
-    """Auto-detects language and applies scaled English or Devanagari font."""
+def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=40, max_lines=2):
+    """Auto-detects language and renders up to max_lines of text within fixed row height."""
     text_str = str(text).strip()
     if not text_str:
         return y
@@ -69,25 +69,28 @@ def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font,
     if current_line:
         lines.append(current_line)
         
+    # Limit output to 2 lines max per meal slot
+    lines_to_draw = lines[:max_lines]
+    
     current_y = y
-    for line in lines:
+    for line in lines_to_draw:
         draw.text((x, current_y), line, font=font, fill=fill_color)
         current_y += line_height
     return current_y
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws padded dark tag banners scaled for larger English section headers."""
+    """Draws bold English dark pill tag with generous padding."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
     except:
-        tw = len(text) * 14
-        th = 22
-    draw.rectangle([x, y, x + tw + 22, y + th + 10], fill=0)
-    draw.text((x + 11, y + 5), text, font=font, fill=255)
-    return y + th + 10
+        tw = len(text) * 16
+        th = 24
+    draw.rectangle([x, y, x + tw + 24, y + th + 12], fill=0)
+    draw.text((x + 12, y + 6), text, font=font, fill=255)
+    return y + th + 12
 
 
 @app.route("/", methods=["GET", "HEAD"])
@@ -115,12 +118,12 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts (Increased English Font Sizes)
+        # 3. Load Fonts (Proportionate English Sizes)
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42)    # Was 34
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 28)  # Was 22
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 24)    # Was 18
-            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 32)    # Was 26
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)    # Bold Branding
+            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 30)  # Glancable Date / Footer Header
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 26)    # Prominent Section Tags
+            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 34)    # Large English Menu Text
         except:
             eng_logo = eng_header = eng_pill = eng_body = ImageFont.load_default()
 
@@ -134,14 +137,14 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (Scaled Up Logo & Date)
+        # TOP APP HEADER BAR
         # ---------------------------------------------------------
-        draw.rectangle([0, 0, 800, 70], fill=0)
+        draw.rectangle([0, 0, 800, 72], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((290, 20), live_date, font=eng_header, fill=255)
+        draw.text((310, 20), live_date, font=eng_header, fill=255)
 
         # WiFi & Battery Status Indicators
-        wifiX, wifiY = 230, 26
+        wifiX, wifiY = 250, 26
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
         draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
@@ -152,46 +155,40 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # MEAL SECTIONS
+        # FIXED 2-ROW MEAL GRID
         # ---------------------------------------------------------
         full_width = 752
-        current_y = 80
 
-        # BREAKFAST
-        pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
-        current_y = draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
-        current_y += 10
-        draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
+        # --- ROW 1: BREAKFAST (Slot: y=80 to y=205) ---
+        draw_section_pill(draw, "BREAKFAST", 24, 80, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, 122, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
+        draw.line([(0, 205), (800, 205)], fill=0, width=2)
 
-        # LUNCH
-        current_y += 10
-        pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
-        current_y = draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
-        current_y += 10
-        draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
+        # --- ROW 2: LUNCH (Slot: y=215 to y=340) ---
+        draw_section_pill(draw, "LUNCH", 24, 215, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, 257, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
+        draw.line([(0, 340), (800, 340)], fill=0, width=2)
 
-        # DINNER
-        current_y += 10
-        pill_end = draw_section_pill(draw, "DINNER", 24, current_y, eng_pill)
-        current_y = draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, eng_body, marathi_meal, line_height=44)
+        # --- ROW 3: DINNER (Slot: y=350 to y=475) ---
+        draw_section_pill(draw, "DINNER", 24, 350, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, 392, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
 
         # ---------------------------------------------------------
-        # DYNAMIC FOOTER: KITCHEN TASKS
+        # FOOTER: KITCHEN TASKS (Slot: y=475 to y=595)
         # ---------------------------------------------------------
-        footer_top = max(current_y + 16, 470)
-        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=2)
+        draw.line([(0, 475), (800, 475)], fill=0, width=3)
 
         # Footer Header Banner
-        draw.rectangle([24, footer_top + 8, 776, footer_top + 44], fill=0)
-        draw.text((36, footer_top + 12), "KITCHEN TASKS", font=eng_header, fill=255)
+        draw.rectangle([24, 485, 776, 523], fill=0)
+        draw.text((36, 489), "KITCHEN TASKS", font=eng_header, fill=255)
 
         # Two spacious columns for tasks
-        col_y = footer_top + 52
+        col_y = 535
         t1_str = "• " + str(data.get("task1", ""))
         t2_str = "• " + str(data.get("task2", ""))
 
-        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=36)
-        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=36)
+        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=36, max_lines=1)
+        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=36, max_lines=1)
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
