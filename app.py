@@ -15,15 +15,15 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# FONT CONFIGURATION
+# LOCKED FONT PIPELINE
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
     FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSansMono-Bold.ttf")
 
-FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
+FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 if not os.path.exists(FONT_MARATHI_PATH):
-    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
+    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
 
 # Safe Filter Selection for Pillow Version Compatibility
 try:
@@ -40,8 +40,8 @@ def is_ascii(text):
     return bool(re.match(r'^[\x00-\x7F]+$', str(text).strip()))
 
 
-def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=40, max_lines=2):
-    """Auto-detects language and renders up to max_lines of text within fixed row height."""
+def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font, fill_color=0, line_height=44, max_lines=2):
+    """Auto-detects language and renders uniform text within a fixed slot."""
     text_str = str(text).strip()
     if not text_str:
         return y
@@ -69,7 +69,7 @@ def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font,
     if current_line:
         lines.append(current_line)
         
-    # Limit output to 2 lines max per meal slot
+    # Cap output to 2 lines per slot to prevent layout overlap
     lines_to_draw = lines[:max_lines]
     
     current_y = y
@@ -80,7 +80,7 @@ def draw_smart_wrapped_text(draw, text, x, y, max_width, eng_font, marathi_font,
 
 
 def draw_section_pill(draw, text, x, y, font):
-    """Draws bold English dark pill tag with generous padding."""
+    """Draws a padded dark header pill tag for section headers."""
     try:
         bbox = font.getbbox(text)
         tw = bbox[2] - bbox[0]
@@ -114,22 +114,22 @@ def render_dashboard():
 
         live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
 
-        # 2. Canvas Setup (800x600 Supersampled)
+        # 2. Canvas Setup (800x600 Supersampled for e-paper)
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts (Proportionate English Sizes)
+        # 3. Load Fonts with Uniform Scaling
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)    # Bold Branding
-            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 30)  # Glancable Date / Footer Header
-            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 26)    # Prominent Section Tags
-            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 34)    # Large English Menu Text
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42)    # Title Logo
+            eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 28)  # Date / Footer Title
+            eng_pill = ImageFont.truetype(FONT_ENGLISH_PATH, 26)    # Section Header Pills
+            eng_body = ImageFont.truetype(FONT_ENGLISH_PATH, 34)    # English Menu Items
         except:
             eng_logo = eng_header = eng_pill = eng_body = ImageFont.load_default()
 
         try:
-            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 38)
-            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 32)
+            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 40) # Uniform Devanagari Meals
+            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 34)  # Uniform Devanagari Tasks
         except:
             marathi_meal = marathi_sub = ImageFont.load_default()
 
@@ -137,9 +137,9 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # TOP APP HEADER BAR
+        # TOP APP HEADER BAR (Y: 0 to 70)
         # ---------------------------------------------------------
-        draw.rectangle([0, 0, 800, 72], fill=0)
+        draw.rectangle([0, 0, 800, 70], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
         draw.text((310, 20), live_date, font=eng_header, fill=255)
 
@@ -155,40 +155,42 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # FIXED 2-ROW MEAL GRID
+        # FIXED 2-ROW VERTICAL GRID SLOTS (752px Width)
         # ---------------------------------------------------------
         full_width = 752
 
-        # --- ROW 1: BREAKFAST (Slot: y=80 to y=205) ---
-        draw_section_pill(draw, "BREAKFAST", 24, 80, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, 122, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
-        draw.line([(0, 205), (800, 205)], fill=0, width=2)
+        # --- SLOT 1: BREAKFAST ---
+        draw_section_pill(draw, "BREAKFAST", 24, 82, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("breakfast", "")), 24, 126, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
+        # Segregation Line with balanced top & bottom margin
+        draw.line([(0, 200), (800, 200)], fill=0, width=2)
 
-        # --- ROW 2: LUNCH (Slot: y=215 to y=340) ---
-        draw_section_pill(draw, "LUNCH", 24, 215, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, 257, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
-        draw.line([(0, 340), (800, 340)], fill=0, width=2)
+        # --- SLOT 2: LUNCH ---
+        draw_section_pill(draw, "LUNCH", 24, 212, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("lunch", "")), 24, 256, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
+        # Segregation Line
+        draw.line([(0, 330), (800, 330)], fill=0, width=2)
 
-        # --- ROW 3: DINNER (Slot: y=350 to y=475) ---
-        draw_section_pill(draw, "DINNER", 24, 350, eng_pill)
-        draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, 392, full_width, eng_body, marathi_meal, line_height=38, max_lines=2)
+        # --- SLOT 3: DINNER ---
+        draw_section_pill(draw, "DINNER", 24, 342, eng_pill)
+        draw_smart_wrapped_text(draw, str(data.get("dinner", "")), 24, 386, full_width, eng_body, marathi_meal, line_height=44, max_lines=2)
 
         # ---------------------------------------------------------
-        # FOOTER: KITCHEN TASKS (Slot: y=475 to y=595)
+        # FOOTER: KITCHEN TASKS (Fixed Slot: Y=460 to 595)
         # ---------------------------------------------------------
-        draw.line([(0, 475), (800, 475)], fill=0, width=3)
+        draw.line([(0, 460), (800, 460)], fill=0, width=3)
 
         # Footer Header Banner
-        draw.rectangle([24, 485, 776, 523], fill=0)
-        draw.text((36, 489), "KITCHEN TASKS", font=eng_header, fill=255)
+        draw.rectangle([24, 472, 776, 512], fill=0)
+        draw.text((36, 477), "KITCHEN TASKS", font=eng_header, fill=255)
 
         # Two spacious columns for tasks
-        col_y = 535
+        col_y = 526
         t1_str = "• " + str(data.get("task1", ""))
         t2_str = "• " + str(data.get("task2", ""))
 
-        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=36, max_lines=1)
-        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=36, max_lines=1)
+        draw_smart_wrapped_text(draw, t1_str, 24, col_y, 360, eng_body, marathi_sub, line_height=40, max_lines=1)
+        draw_smart_wrapped_text(draw, t2_str, 410, col_y, 360, eng_body, marathi_sub, line_height=40, max_lines=1)
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
@@ -196,7 +198,8 @@ def render_dashboard():
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
-        threshold = 155
+        # Crisp monochrome threshold
+        threshold = 150
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
 
