@@ -17,15 +17,36 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------
 # UNIFIED FONT PATH DEFINITIONS WITH PROPER FALLBACKS
 # ---------------------------------------------------------
-FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
-if not os.path.exists(FONT_ENGLISH_PATH):
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
-    if not os.path.exists(FONT_ENGLISH_PATH):
-        FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
+ENGLISH_FONT_CANDIDATES = [
+    os.path.join(BASE_DIR, "ProFont.ttf"),
+    os.path.join(BASE_DIR, "ProFont.ttf"),
+    os.path.join(BASE_DIR, "ProFont.ttf"),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+]
 
-FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
-if not os.path.exists(FONT_MARATHI_PATH):
-    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Regular.ttf")
+FONT_ENGLISH_PATH = None
+for fpath in ENGLISH_FONT_CANDIDATES:
+    if os.path.exists(fpath):
+        FONT_ENGLISH_PATH = fpath
+        break
+
+if not FONT_ENGLISH_PATH:
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
+
+MARATHI_FONT_CANDIDATES = [
+    os.path.join(BASE_DIR, "Mukta-Bold.ttf"),
+    os.path.join(BASE_DIR, "Mukta-Regular.ttf")
+]
+
+FONT_MARATHI_PATH = None
+for fpath in MARATHI_FONT_CANDIDATES:
+    if os.path.exists(fpath):
+        FONT_MARATHI_PATH = fpath
+        break
+
+if not FONT_MARATHI_PATH:
+    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 
 # Safe Filter Selection for Pillow Version Compatibility
 try:
@@ -38,7 +59,7 @@ except AttributeError:
 
 
 def has_devanagari(text):
-    """Detects if a string contains any Devanagari script characters."""
+    """Detects if a string contains any Devanagari (Marathi/Hindi) script characters."""
     return bool(re.search(r'[\u0900-\u097F]', str(text)))
 
 
@@ -69,14 +90,13 @@ def get_wrapped_lines(text, font, max_width):
 def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
-    Automatically uses Marathi font if Devanagari characters exist,
-    otherwise uses English font.
+    Uses Marathi font if Devanagari script is detected, otherwise uses English font.
     """
     text_str = str(text).strip()
     if not text_str:
         return
 
-    # Check for Devanagari presence instead of strict ASCII
+    # Devanagari detection: if Marathi characters exist, use Marathi font; else English font
     is_marathi = has_devanagari(text_str)
     font_path = marathi_font_path if is_marathi else eng_font_path
 
@@ -171,12 +191,11 @@ def render_dashboard():
 
         # ---------------------------------------------------------
         # UNIFIED BLACK SIDEBAR COLUMN (X: 0 to 230, Y: 72 to 600)
-        # Section labels left-aligned at X=24 to match "MealSync"
         # ---------------------------------------------------------
         sidebar_w = 230
         draw.rectangle([0, 72, sidebar_w, 600], fill=0)
 
-        # Section Labels inside Black Sidebar (White Text, fill=255)
+        # Section Labels inside Black Sidebar (White Text)
         draw.text((24, 110), "BREAKFAST", font=eng_section, fill=255)
         draw.text((24, 230), "LUNCH", font=eng_section, fill=255)
         draw.text((24, 350), "DINNER", font=eng_section, fill=255)
