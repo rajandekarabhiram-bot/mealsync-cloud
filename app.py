@@ -19,7 +19,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ---------------------------------------------------------
 FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
-    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "ProFont.ttf")
+    FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSansMono-Bold.ttf")
 
 FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
 if not os.path.exists(FONT_MARATHI_PATH):
@@ -64,7 +64,7 @@ def get_wrapped_lines(text, font, max_width):
     return lines
 
 
-def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=42, min_size=28, fill_color=0):
+def draw_autofit_text(draw, text, x, y, max_width, max_lines, eng_font_path, marathi_font_path, max_size=38, min_size=26, fill_color=0):
     """
     Dynamically scales font size to fit text within assigned width and line budget.
     """
@@ -135,11 +135,11 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Unified English Typography (Increased Font Sizes)
+        # 3. Load Unified English Typography
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)    # App Logo
-            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)    # Header Date
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32) # Sidebar Section Labels (Increased to 32px)
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44)   # App Logo
+            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32)   # Header Date
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 28)# Sidebar Section Labels
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
@@ -178,21 +178,19 @@ def render_dashboard():
         draw.text((24, 480), "TASKS", font=eng_section, fill=255)
 
         # ---------------------------------------------------------
-        # HORIZONTAL ROW DIVIDERS Across Display (Equal Thickness = 3px)
+        # HORIZONTAL ROW DIVIDERS Across Display
         # ---------------------------------------------------------
-        divider_w = 3
-
         # Row 1 Divider (Breakfast / Lunch)
-        draw.line([(0, 195), (sidebar_w, 195)], fill=255, width=divider_w)
-        draw.line([(sidebar_w, 195), (800, 195)], fill=0, width=divider_w)
+        draw.line([(0, 195), (sidebar_w, 195)], fill=255, width=2)
+        draw.line([(sidebar_w, 195), (800, 195)], fill=0, width=2)
 
         # Row 2 Divider (Lunch / Dinner)
-        draw.line([(0, 315), (sidebar_w, 315)], fill=255, width=divider_w)
-        draw.line([(sidebar_w, 315), (800, 315)], fill=0, width=divider_w)
+        draw.line([(0, 315), (sidebar_w, 315)], fill=255, width=2)
+        draw.line([(sidebar_w, 315), (800, 315)], fill=0, width=2)
 
         # Row 3 Divider (Dinner / Kitchen Tasks)
-        draw.line([(0, 450), (sidebar_w, 450)], fill=255, width=divider_w)
-        draw.line([(sidebar_w, 450), (800, 450)], fill=0, width=divider_w)
+        draw.line([(0, 450), (sidebar_w, 450)], fill=255, width=3)
+        draw.line([(sidebar_w, 450), (800, 450)], fill=0, width=3)
 
         # ---------------------------------------------------------
         # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
@@ -206,7 +204,7 @@ def render_dashboard():
             draw, str(data.get("breakfast", "")), 
             x=right_x, y=92, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=42, min_size=28
+            max_size=38, min_size=26
         )
 
         # --- SLOT 2: LUNCH (Y: 212 to 305) ---
@@ -214,7 +212,7 @@ def render_dashboard():
             draw, str(data.get("lunch", "")), 
             x=right_x, y=212, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=42, min_size=28
+            max_size=38, min_size=26
         )
 
         # --- SLOT 3: DINNER (Y: 332 to 435) ---
@@ -222,28 +220,28 @@ def render_dashboard():
             draw, str(data.get("dinner", "")), 
             x=right_x, y=332, max_width=content_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=42, min_size=28
+            max_size=38, min_size=26
         )
 
-        # --- SLOT 4: KITCHEN TASKS (Aligned to start at right_x = 246) ---
-        task1 = str(data.get("task1", "")).strip()
-        task2 = str(data.get("task2", "")).strip()
+        # --- SLOT 4: KITCHEN TASKS (Reduced Height Footer) ---
+        col1_x = right_x
+        col2_x = right_x + 270
+        task_col_w = 250
 
-        t1_str = "• " + task1 if task1 else ""
-        t2_str = "• " + task2 if task2 else ""
-        
-        if t1_str and t2_str:
-            tasks_text = f"{t1_str}   {t2_str}"
-        elif t1_str:
-            tasks_text = t1_str
-        else:
-            tasks_text = t2_str
+        t1_str = "• " + str(data.get("task1", ""))
+        t2_str = "• " + str(data.get("task2", ""))
 
         draw_autofit_text(
-            draw, tasks_text, 
-            x=right_x, y=475, max_width=content_w, max_lines=2, 
+            draw, t1_str, 
+            x=col1_x, y=480, max_width=task_col_w, max_lines=2, 
             eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
-            max_size=38, min_size=26
+            max_size=34, min_size=24
+        )
+        draw_autofit_text(
+            draw, t2_str, 
+            x=col2_x, y=480, max_width=task_col_w, max_lines=2, 
+            eng_font_path=FONT_ENGLISH_PATH, marathi_font_path=FONT_MARATHI_PATH, 
+            max_size=34, min_size=24
         )
 
         # ---------------------------------------------------------
