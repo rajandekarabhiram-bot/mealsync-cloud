@@ -15,7 +15,7 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ---------------------------------------------------------
-# UNIFIED FONT PATH DEFINITIONS WITH ROBUST FALLBACKS
+# MODERN ENGLISH VECTOR FONT PIPELINE
 # ---------------------------------------------------------
 def resolve_font_path(candidates):
     for font_name in candidates:
@@ -23,16 +23,20 @@ def resolve_font_path(candidates):
         local_path = os.path.join(BASE_DIR, font_name)
         if os.path.exists(local_path):
             return local_path
-        # Check system TrueType directory
+        # Check Linux system TrueType directory
         sys_path = os.path.join("/usr/share/fonts/truetype/dejavu", font_name)
         if os.path.exists(sys_path):
             return sys_path
     return None
 
+# Checks repository for Inter, Rubik, Montserrat, Roboto, or DejaVu
 FONT_ENGLISH_PATH = resolve_font_path([
-    "ProFont.ttf", 
-    "DejaVuSansMono-Bold.ttf", 
-    "DejaVuSans-Bold.ttf"
+    "Inter-Bold.ttf",
+    "Rubik-Bold.ttf",
+    "Montserrat-Bold.ttf",
+    "Roboto-Bold.ttf",
+    "DejaVuSans-Bold.ttf",
+    "DejaVuSansMono-Bold.ttf"
 ])
 
 FONT_MARATHI_PATH = resolve_font_path([
@@ -154,11 +158,11 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Unified English Typography
+        # 3. Load Modern English Typography
         try:
-            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 44) if FONT_ENGLISH_PATH else ImageFont.load_default()
-            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 32) if FONT_ENGLISH_PATH else ImageFont.load_default()
-            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 32) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 42) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_date = ImageFont.truetype(FONT_ENGLISH_PATH, 30) if FONT_ENGLISH_PATH else ImageFont.load_default()
+            eng_section = ImageFont.truetype(FONT_ENGLISH_PATH, 30) if FONT_ENGLISH_PATH else ImageFont.load_default()
         except:
             eng_logo = eng_date = eng_section = ImageFont.load_default()
 
@@ -169,8 +173,8 @@ def render_dashboard():
         # APP HEADER BAR (Y: 0 to 72)
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 72], fill=0)
-        draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((310, 18), live_date, font=eng_date, fill=255)
+        draw.text((24, 14), "MealSync", font=eng_logo, fill=255)
+        draw.text((310, 20), live_date, font=eng_date, fill=255)
 
         # WiFi & Battery Status Indicators
         wifiX, wifiY = 250, 26
@@ -190,10 +194,10 @@ def render_dashboard():
         draw.rectangle([0, 72, sidebar_w, 600], fill=0)
 
         # Section Labels inside Black Sidebar (White Text)
-        draw.text((24, 110), "BREAKFAST", font=eng_section, fill=255)
-        draw.text((24, 230), "LUNCH", font=eng_section, fill=255)
-        draw.text((24, 350), "DINNER", font=eng_section, fill=255)
-        draw.text((24, 480), "TASKS", font=eng_section, fill=255)
+        draw.text((24, 112), "BREAKFAST", font=eng_section, fill=255)
+        draw.text((24, 232), "LUNCH", font=eng_section, fill=255)
+        draw.text((24, 352), "DINNER", font=eng_section, fill=255)
+        draw.text((24, 482), "TASKS", font=eng_section, fill=255)
 
         # ---------------------------------------------------------
         # HORIZONTAL ROW DIVIDERS Across Display (3px thickness)
