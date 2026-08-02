@@ -13,15 +13,16 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pN
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Font Configuration
-FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "Inter-Bold.ttf")
+# ---------------------------------------------------------
+# LOCKED FONT PIPELINE (Noto Sans & Mukta)
+# ---------------------------------------------------------
+FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "NotoSans-Bold.ttf")
 if not os.path.exists(FONT_ENGLISH_PATH):
     FONT_ENGLISH_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
 
 FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Mukta-Bold.ttf")
-if not os.path.exists(FONT_MARATHI_PATH):
-    FONT_MARATHI_PATH = os.path.join(BASE_DIR, "Yantramanav-Bold.ttf")
 
+# Safe Filter Selection for Pillow Version Compatibility
 try:
     LANCZOS_FILTER = Image.Resampling.LANCZOS
 except AttributeError:
@@ -31,8 +32,8 @@ except AttributeError:
         LANCZOS_FILTER = Image.BICUBIC
 
 
-def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_height=44):
-    """Draws multi-line Marathi content with generous line spacing."""
+def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_height=46):
+    """Draws multi-line Marathi content with dynamic y-tracking and matra padding."""
     words = str(text).split(" ")
     lines = []
     current_line = ""
@@ -43,7 +44,7 @@ def draw_wrapped_marathi(draw, text, x, y, max_width, font, fill_color=0, line_h
             bbox = font.getbbox(test_line)
             w = bbox[2] - bbox[0]
         except:
-            w = len(test_line) * 18  
+            w = len(test_line) * 16  
             
         if w <= max_width:
             current_line = test_line
@@ -90,8 +91,8 @@ def render_dashboard():
                 "breakfast": "पुरणपोळी, कटाची आमटी, भजी", 
                 "lunch": "वरण भात, चपाती, वांग्याची भाजी, कोशिंबीर, पापड", 
                 "dinner": "मसाला खिचडी, कढी, पापड",
-                "task1": "दूध आणा", "task2": "भाजी धुवा",
-                "prep": "भिजवून ठेवा"
+                "task1": "दूध आणा", 
+                "task2": "भाजी धुवा"
             }
 
         live_date = data.get("date", datetime.now().strftime("%a, %d %b %Y").upper())
@@ -100,7 +101,7 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Fonts (Strict Separation)
+        # 3. Load Fonts
         try:
             eng_logo = ImageFont.truetype(FONT_ENGLISH_PATH, 36)
             eng_header = ImageFont.truetype(FONT_ENGLISH_PATH, 24)
@@ -109,20 +110,20 @@ def render_dashboard():
             eng_logo = eng_header = eng_pill = ImageFont.load_default()
 
         try:
-            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 42) # Large, crisp meal font
-            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 32)  # Footer tasks font
+            marathi_meal = ImageFont.truetype(FONT_MARATHI_PATH, 38) # Standardized Mukta Bold
+            marathi_sub = ImageFont.truetype(FONT_MARATHI_PATH, 32)
         except:
             marathi_meal = marathi_sub = ImageFont.load_default()
 
-        # Canvas Outer Border
+        # Canvas Outer Frame
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (English Font for Logo & Date)
+        # APP HEADER BAR (English Logo & Date)
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 64], fill=0)
         draw.text((24, 12), "MealSync", font=eng_logo, fill=255)
-        draw.text((280, 18), live_date, font=eng_header, fill=255)  # Enforced English Font
+        draw.text((280, 18), live_date, font=eng_header, fill=255)
 
         # WiFi & Battery Status Indicators
         wifiX, wifiY = 220, 24
@@ -136,46 +137,45 @@ def render_dashboard():
         draw.rectangle([batX + 4, batY + 4, batX + 38, batY + 20], fill=255)
 
         # ---------------------------------------------------------
-        # FULL-WIDTH MEAL SECTION (Edge-to-Edge Divider Lines)
+        # MEAL SECTIONS (Equal Divider Thickness = 2px)
         # ---------------------------------------------------------
         full_width = 752
         current_y = 76
 
         # BREAKFAST
         pill_end = draw_section_pill(draw, "BREAKFAST", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
-        current_y += 12
-        # Full-width edge-to-edge line
+        current_y = draw_wrapped_marathi(draw, str(data.get("breakfast", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
+        current_y += 10
+        # Equalized divider line
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # LUNCH
         current_y += 10
         pill_end = draw_section_pill(draw, "LUNCH", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
-        current_y += 12
-        # Full-width edge-to-edge line
+        current_y = draw_wrapped_marathi(draw, str(data.get("lunch", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
+        current_y += 10
+        # Equalized divider line
         draw.line([(0, current_y), (800, current_y)], fill=0, width=2)
 
         # DINNER
         current_y += 10
         pill_end = draw_section_pill(draw, "DINNER", 24, current_y, eng_pill)
-        current_y = draw_wrapped_marathi(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=44)
+        current_y = draw_wrapped_marathi(draw, str(data.get("dinner", "")), 24, pill_end + 6, full_width, marathi_meal, line_height=46)
 
         # ---------------------------------------------------------
-        # BOTTOM FOOTER: KITCHEN TASKS & PREP ALERT
+        # DYNAMIC FOOTER: KITCHEN TASKS (Alert Removed)
         # ---------------------------------------------------------
-        footer_top = 485
-        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=4)
+        footer_top = max(current_y + 16, 470)
+        draw.line([(0, footer_top), (800, footer_top)], fill=0, width=3)
 
-        # Footer Header Tag
+        # Footer Header Banner
         draw.rectangle([24, footer_top + 10, 776, footer_top + 42], fill=0)
-        draw.text((36, footer_top + 14), "TASKS & PREP ALERT", font=eng_header, fill=255)
+        draw.text((36, footer_top + 14), "KITCHEN TASKS", font=eng_header, fill=255)
 
-        # 3 Equal Columns across the bottom strip
+        # Two spacious columns for tasks
         col_y = footer_top + 52
         draw.text((24, col_y), "• " + str(data.get("task1", "")), font=marathi_sub, fill=0)
-        draw.text((280, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0)
-        draw.text((530, col_y), "Alert: " + str(data.get("prep", "")), font=marathi_sub, fill=0)
+        draw.text((410, col_y), "• " + str(data.get("task2", "")), font=marathi_sub, fill=0)
 
         # ---------------------------------------------------------
         # DOWNSCALE & MONOCHROME THRESHOLDING
@@ -183,6 +183,7 @@ def render_dashboard():
         img_downscaled = img.resize((400, 300), LANCZOS_FILTER)
         img_inverted_grayscale = ImageOps.invert(img_downscaled)
         
+        # Binary thresholding for pure 1-bit monochrome output
         threshold = 145
         img_thresholded = img_inverted_grayscale.point(lambda p: 255 if p > threshold else 0)
         final_img = img_thresholded.convert("1", dither=Image.NONE)
