@@ -125,7 +125,7 @@ def render_dashboard():
         return "OK", 200
 
     try:
-        # 1. Fetch Google Sheet Data
+        # 1. Fetch Google Sheet Data via Google Apps Script
         try:
             response = requests.get(GOOGLE_SCRIPT_URL, timeout=20)
             data = response.json()
@@ -144,7 +144,7 @@ def render_dashboard():
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # 3. Load Header Typography (ProFont.ttf - Scaled Up)
+        # 3. Load Header Typography (ProFont.ttf)
         try:
             eng_logo = ImageFont.truetype(FONT_HEADER_PATH, 54) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
             eng_date = ImageFont.truetype(FONT_HEADER_PATH, 38) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
@@ -156,18 +156,37 @@ def render_dashboard():
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
 
         # ---------------------------------------------------------
-        # APP HEADER BAR (Y: 0 to 76) — ProFont (Increased Size)
+        # APP HEADER BAR (Y: 0 to 76) — ProFont
         # ---------------------------------------------------------
         draw.rectangle([0, 0, 800, 76], fill=0)
         draw.text((24, 8), "MealSync", font=eng_logo, fill=255)
         draw.text((320, 16), live_date, font=eng_date, fill=255)
 
-        # WiFi & Battery Status Indicators
-        wifiX, wifiY = 260, 26
-        draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255)
-        draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255)
-        draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255)
+        # ---------------------------------------------------------
+        # DYNAMIC WIFI SIGNAL INDICATOR (Reads RSSI Query Parameter)
+        # ---------------------------------------------------------
+        try:
+            rssi = int(request.args.get('rssi', -50))
+        except (ValueError, TypeError):
+            rssi = -50
 
+        # Calculate active bars based on RSSI strength (1 to 3 bars)
+        if rssi >= -67:
+            signal_bars = 3  # Strong signal
+        elif rssi >= -80:
+            signal_bars = 2  # Medium signal
+        else:
+            signal_bars = 1  # Weak signal
+
+        wifiX, wifiY = 250, 26
+        # Bar 1 (Shortest - Weak Signal)
+        draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255 if signal_bars >= 1 else 40)
+        # Bar 2 (Medium Signal)
+        draw.rectangle([wifiX + 8, wifiY + 6, wifiX + 12, wifiY + 20], fill=255 if signal_bars >= 2 else 40)
+        # Bar 3 (Tallest - Strong Signal)
+        draw.rectangle([wifiX + 16, wifiY, wifiX + 20, wifiY + 20], fill=255 if signal_bars >= 3 else 40)
+
+        # Battery Status Indicator Icon
         batX, batY = 730, 22
         draw.rectangle([batX, batY, batX + 46, batY + 24], outline=255, fill=0)
         draw.rectangle([batX + 46, batY + 6, batX + 50, batY + 18], fill=255)
@@ -204,7 +223,7 @@ def render_dashboard():
 
         # ---------------------------------------------------------
         # RIGHT MAIN CONTENT AREA (X: 246 to 776, Width = 530)
-        # Max Font Size increased to 46px
+        # Max Font Size = 46px
         # ---------------------------------------------------------
         right_x = sidebar_w + 16  # 246
         content_w = 800 - right_x - 24  # 530
