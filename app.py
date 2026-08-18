@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 
 # ============================================================================
-# 1. CONFIGURATION & RESAMPLING COMPATIBILITY
+# 1. CONFIGURATION & URLS
 # ============================================================================
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
@@ -20,17 +20,6 @@ FONT_HEADER_PATH  = "ProFont.ttf"
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
-# Pillow Version-Safe Resampling Filter
-if hasattr(Image, 'Resampling'):
-    LANCZOS_FILTER = Image.Resampling.LANCZOS
-elif hasattr(Image, 'LANCZOS'):
-    LANCZOS_FILTER = Image.LANCZOS
-elif hasattr(Image, 'ANTIALIAS'):
-    LANCZOS_FILTER = Image.ANTIALIAS
-else:
-    LANCZOS_FILTER = Image.BICUBIC
-
-# Automated Google Fonts download for Devanagari/English
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
@@ -92,7 +81,7 @@ def get_text_width(font, text):
             w, _ = font.getsize(text)
             return w
         except Exception:
-            return len(text) * 10
+            return len(text) * 8
 
 def get_wrapped_lines(text, font, max_width):
     words = str(text).strip().split()
@@ -115,7 +104,7 @@ def get_wrapped_lines(text, font, max_width):
         lines.append(" ".join(curr))
     return lines
 
-def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size=42, min_font_size=24, max_lines=2, fill_color=0):
+def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size=20, min_font_size=13, max_lines=2, fill_color=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -123,10 +112,10 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
     selected_font = None
     selected_lines = []
     
-    for size in range(max_font_size, min_font_size - 1, -2):
+    for size in range(max_font_size, min_font_size - 1, -1):
         test_font = safe_font(font_file, size)
         lines = get_wrapped_lines(text_str, test_font, max_width)
-        line_h = int(size * 1.28)
+        line_h = int(size * 1.25)
         total_h = len(lines) * line_h
         if len(lines) <= max_lines and total_h <= max_height:
             selected_font = test_font
@@ -137,14 +126,14 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         selected_font = safe_font(font_file, min_font_size)
         selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
 
-    line_h = int(selected_font.size * 1.28) if hasattr(selected_font, 'size') else 26
+    line_h = int(selected_font.size * 1.25) if hasattr(selected_font, 'size') else 16
     curr_y = y
     for line in selected_lines:
         draw.text((x, curr_y), line, font=selected_font, fill=fill_color)
         curr_y += line_h
 
 # ============================================================================
-# 3. MASTER IMAGE RENDERER (Clean Header Alignment)
+# 3. MASTER IMAGE RENDERER (Native 400x300 Tack-Sharp Engine)
 # ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
@@ -180,89 +169,88 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. 800x600 High-Res Canvas (Supersampled)
-        img = Image.new("L", (800, 600), 255)
+        # 3. Direct Native 400x300 Canvas (1-bit Mode: 1=White, 0=Black)
+        img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        # Consistent Header Typography
-        font_logo = safe_font(FONT_HEADER_PATH, 44)
-        font_date = safe_font(FONT_HEADER_PATH, 28)
-        font_badge = safe_font(FONT_HEADER_PATH, 28)
-        font_section = safe_font(FONT_HEADER_PATH, 32)
+        # Bold, Sharp Fonts at 1:1 Pixel Scale
+        font_logo = safe_font(FONT_ENGLISH_PATH, 20)
+        font_date = safe_font(FONT_ENGLISH_PATH, 13)
+        font_badge = safe_font(FONT_ENGLISH_PATH, 13)
+        font_section = safe_font(FONT_ENGLISH_PATH, 15)
 
-        # Outer Frame & Top Header Bar
-        draw.rectangle([0, 0, 799, 599], outline=0, width=4)
-        draw.rectangle([0, 0, 800, 76], fill=0)
+        # --- A. Header Bar ---
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, 38], fill=0)
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # --- A. MealSync Logo ---
-        draw.text((20, 16), "MealSync", font=font_logo, fill=255)
+        # Logo
+        draw.text((10, 8), "MealSync", font=font_logo, fill=1)
 
-        # --- B. Wi-Fi RSSI Bars (Positioned with clear spacing) ---
+        # Wi-Fi RSSI Bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
-        wifiX, wifiY = 225, 26
-        draw.rectangle([wifiX, wifiY + 14, wifiX + 4, wifiY + 22], fill=255 if signal_bars >= 1 else 40)
-        draw.rectangle([wifiX + 7, wifiY + 8, wifiX + 11, wifiY + 22], fill=255 if signal_bars >= 2 else 40)
-        draw.rectangle([wifiX + 14, wifiY + 2, wifiX + 18, wifiY + 22], fill=255 if signal_bars >= 3 else 40)
+        wifiX, wifiY = 112, 14
+        draw.rectangle([wifiX, wifiY + 8, wifiX + 2, wifiY + 12], fill=1 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 12], fill=1 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 8, wifiY, wifiX + 10, wifiY + 12], fill=1 if signal_bars >= 3 else 0)
 
-        # --- C. Live Date (Centered comfortably) ---
-        draw.text((260, 22), live_date, font=font_date, fill=255)
+        # Live Date
+        draw.text((130, 11), live_date, font=font_date, fill=1)
 
-        # --- D. Dynamic Battery Icon & Close-Badge Alignment ---
-        batX, batY = 730, 24
-        draw.rectangle([batX, batY, batX + 44, batY + 24], outline=255, width=3)
-        draw.rectangle([batX + 44, batY + 6, batX + 49, batY + 18], fill=255)
+        # Battery Icon & Adjacent Badge
+        batX, batY = 362, 12
+        draw.rectangle([batX, batY, batX + 24, batY + 14], outline=1, width=1)
+        draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=1)
 
         if batt_str == "CHG":
-            # Draw lightning bolt inside battery
+            # Lightning bolt inside battery
             draw.polygon([
-                (batX + 22, batY + 3), (batX + 13, batY + 13), 
-                (batX + 21, batY + 13), (batX + 18, batY + 21), 
-                (batX + 31, batY + 10), (batX + 23, batY + 10)
-            ], fill=255)
+                (batX + 12, batY + 2), (batX + 7, batY + 7), 
+                (batX + 11, batY + 7), (batX + 10, batY + 12), 
+                (batX + 17, batY + 6), (batX + 13, batY + 6)
+            ], fill=1)
         else:
-            fill_w = max(0, min(36, int((batt_pct / 100.0) * 36)))
+            fill_w = max(0, min(20, int((batt_pct / 100.0) * 20)))
             if fill_w > 0:
-                draw.rectangle([batX + 4, batY + 4, batX + 4 + fill_w, batY + 20], fill=255)
+                draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=1)
 
-        # Place the battery string close to the battery icon (Right-Aligned)
+        # Draw battery string (CHG, 500d+) right next to battery icon
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 10, 22), batt_str, font=font_badge, fill=255)
+        draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=1)
 
-        # 4. Left Sidebar & Grid Dividers
-        draw.rectangle([0, 72, 230, 600], fill=0)
-        draw.text((24, 105), "BREAKFAST", font=font_section, fill=255)
-        draw.text((24, 225), "LUNCH", font=font_section, fill=255)
-        draw.text((24, 350), "DINNER", font=font_section, fill=255)
-        draw.text((24, 490), "TASKS", font=font_section, fill=255)
+        # --- B. Left Sidebar & Sections ---
+        sidebar_w = 118
+        draw.rectangle([0, 38, sidebar_w, PANEL_HEIGHT - 1], fill=0)
 
-        for y_div in [195, 315, 450]:
-            draw.line([(0, y_div), (230, y_div)], fill=255, width=3)
-            draw.line([(230, y_div), (800, y_div)], fill=0, width=3)
+        draw.text((10, 52), "BREAKFAST", font=font_section, fill=1)
+        draw.text((10, 112), "LUNCH", font=font_section, fill=1)
+        draw.text((10, 175), "DINNER", font=font_section, fill=1)
+        draw.text((10, 245), "TASKS", font=font_section, fill=1)
 
-        # 5. Content Rendering
-        draw_autofit_text(draw, data["breakfast"], 250, 85, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["lunch"], 250, 205, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["dinner"], 250, 330, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
+        # Dividers
+        for y_div in [98, 160, 228]:
+            draw.line([(0, y_div), (sidebar_w, y_div)], fill=1, width=2)
+            draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
-        # 6. Tasks Footer
-        draw.rectangle([250, 485, 270, 505], outline=0, width=2)
-        draw_autofit_text(draw, data["task1"], 285, 478, 230, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
+        # --- C. Main Meals Content (Crisp Devanagari / English) ---
+        draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
+        draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
+        draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        draw.rectangle([530, 485, 550, 505], outline=0, width=2)
-        draw_autofit_text(draw, data["task2"], 565, 478, 210, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
+        # --- D. Tasks Footer ---
+        draw.rectangle([128, 244, 140, 256], outline=0, width=1)
+        draw_autofit_text(draw, data["task1"], 146, 240, 110, 24, max_font_size=14, min_font_size=11, max_lines=1, fill_color=0)
 
-        # 7. Downscale to 400x300 E-Paper Resolution
-        img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), LANCZOS_FILTER)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 140 else 0, mode="1")
+        draw.rectangle([265, 244, 277, 256], outline=0, width=1)
+        draw_autofit_text(draw, data["task2"], 283, 240, 110, 24, max_font_size=14, min_font_size=11, max_lines=1, fill_color=0)
 
-        # Stream raw 15,000 bytes for ESP32 Client
+        # 4. Stream Raw 15,000 Bytes to ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
-            img_epd = ImageOps.invert(img_downscaled.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
+            img_epd = ImageOps.invert(img.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Deliver BMP for browser verification
+        # BMP for browser verification
         buf = io.BytesIO()
-        img_1bit.save(buf, format='BMP')
+        img.save(buf, format='BMP')
         buf.seek(0)
         return send_file(buf, mimetype='image/bmp')
 
