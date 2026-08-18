@@ -133,7 +133,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         curr_y += line_h
 
 # ============================================================================
-# 3. MASTER IMAGE RENDERER (Native 400x300 Tack-Sharp Engine)
+# 3. MASTER IMAGE RENDERER
 # ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
@@ -155,7 +155,7 @@ def render_display():
             except Exception as e:
                 print(f"[WARN] Sheet fetch skipped: {e}")
 
-        # 2. Parse Query Params from ESP32
+        # 2. Query Params from ESP32
         try:
             rssi = int(request.args.get('rssi', -50))
         except Exception:
@@ -169,11 +169,11 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Direct Native 400x300 Canvas (1-bit Mode: 1=White, 0=Black)
+        # 3. Native 400x300 1-bit Canvas (1=White, 0=Black)
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        # Bold, Sharp Fonts at 1:1 Pixel Scale
+        # Fonts
         font_logo = safe_font(FONT_ENGLISH_PATH, 20)
         font_date = safe_font(FONT_ENGLISH_PATH, 13)
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
@@ -202,7 +202,6 @@ def render_display():
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=1)
 
         if batt_str == "CHG":
-            # Lightning bolt inside battery
             draw.polygon([
                 (batX + 12, batY + 2), (batX + 7, batY + 7), 
                 (batX + 11, batY + 7), (batX + 10, batY + 12), 
@@ -213,7 +212,6 @@ def render_display():
             if fill_w > 0:
                 draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=1)
 
-        # Draw battery string (CHG, 500d+) right next to battery icon
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=1)
 
@@ -231,24 +229,26 @@ def render_display():
             draw.line([(0, y_div), (sidebar_w, y_div)], fill=1, width=2)
             draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
-        # --- C. Main Meals Content (Crisp Devanagari / English) ---
+        # --- C. Main Meals Content ---
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer ---
-        draw.rectangle([128, 244, 140, 256], outline=0, width=1)
-        draw_autofit_text(draw, data["task1"], 146, 240, 110, 24, max_font_size=14, min_font_size=11, max_lines=1, fill_color=0)
+        # --- D. Tasks Footer (Enlarged & Highly Readable) ---
+        # Task 1 Box & Text
+        draw.rectangle([128, 243, 142, 257], outline=0, width=2)
+        draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        draw.rectangle([265, 244, 277, 256], outline=0, width=1)
-        draw_autofit_text(draw, data["task2"], 283, 240, 110, 24, max_font_size=14, min_font_size=11, max_lines=1, fill_color=0)
+        # Task 2 Box & Text
+        draw.rectangle([264, 243, 278, 257], outline=0, width=2)
+        draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         # 4. Stream Raw 15,000 Bytes to ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
             img_epd = ImageOps.invert(img.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # BMP for browser verification
+        # BMP for browser inspection
         buf = io.BytesIO()
         img.save(buf, format='BMP')
         buf.seek(0)
