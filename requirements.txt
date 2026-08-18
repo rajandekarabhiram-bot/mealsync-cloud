@@ -1,4 +1,5 @@
 flask
 pillow
+requests
 gunicorn
 twilio
