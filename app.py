@@ -1,16 +1,321 @@
 import os
-import requests
-import traceback
-import re
-from flask import Flask, send_file, request
-from PIL import Image, ImageDraw, ImageFont, ImageOps
 import io
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
+from flask import Flask, request, Response, send_file
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
 
-# Active Google Apps Script Web App URL
+# ============================================================================
+# 1. CONFIGURATION & URLS
+# ============================================================================
+# Paste your deployed Google Apps Script Web App URL below
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
+
+# Font paths (Ensure font files are uploaded to your GitHub repository root)
+FONT_ENGLISH_PATH = "Rubik-Bold.ttf"
+FONT_MARATHI_PATH = "Mukta-Bold.ttf"
+FONT_HEADER_PATH  = "ProFont.ttf"
+
+# Hardware E-Paper Display Dimensions
+PANEL_WIDTH = 400
+PANEL_HEIGHT = 300
+
+# WhatsApp API Free Tier Limiter Settings
+MONTHLY_FREE_LIMIT = 1000
+WARNING_THRESHOLD  = 900
+
+quota_state = {
+    "current_month": datetime.utcnow().strftime("%Y-%m"),
+    "global_conversation_count": 0,
+    "user_sessions": {}  # user_phone -> session_expiry_datetime
+}
+
+# Live Memory Store for WhatsApp Updates (Fallback when Google Sheets is sleeping)
+live_menu_store = {
+    "breakfast": "पुरणपोळी, कटाची आमटी, भजी",
+    "lunch": "वरण भात, चपाती, वांग्याची भाजी, कोशिंबीर, पापड",
+    "dinner": "मसाला खिचडी, कढी, पापड",
+    "task1": "दूध आणा",
+    "task2": "भाजी धुवा",
+    "prep": "काजू भिजवून ठेवा",
+    "waste": "उघडे दूध, पालक"
+}
+
+# ============================================================================
+# 2. HELPER FUNCTIONS: TEXT AUTO-FITTING & QUOTA MANAGEMENT
+# ============================================================================
+def is_ascii(s):
+    return all(ord(c) < 128 for c in s)
+
+def get_wrapped_lines(text, font, max_width):
+    words = text.split()
+    if not words:
+        return []
+    lines = []
+    current_line = []
+    for word in words:
+        test_line = " ".join(current_line + [word])
+        try:
+            bbox = font.getbbox(test_line)
+            w = bbox[2] - bbox[0]
+        except:
+            w, _ = font.getsize(test_line)
+        if w <= max_width:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+            else:
+                lines.append(word)
+                current_line = []
+    if current_line:
+        lines.append(" ".join(current_line))
+    return lines
+
+def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size=42, min_font_size=24, max_lines=2, fill_color=0):
+    text_str = str(text_str).strip()
+    if not text_str:
+        return
+    font_file = FONT_ENGLISH_PATH if is_ascii(text_str) else FONT_MARATHI_PATH
+    selected_font = None
+    selected_lines = []
+    for size in range(max_font_size, min_font_size - 1, -2):
+        try:
+            test_font = ImageFont.truetype(font_file, size) if os.path.exists(font_file) else ImageFont.load_default()
+        except:
+            test_font = ImageFont.load_default()
+        lines = get_wrapped_lines(text_str, test_font, max_width)
+        line_h = int(size * 1.20)
+        total_h = len(lines) * line_h
+        if len(lines) <= max_lines and total_h <= max_height:
+            selected_font = test_font
+            selected_lines = lines
+            break
+    if not selected_font:
+        try:
+            selected_font = ImageFont.truetype(font_file, min_font_size) if os.path.exists(font_file) else ImageFont.load_default()
+        except:
+            selected_font = ImageFont.load_default()
+        selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
+
+    line_h = int(selected_font.size * 1.20) if hasattr(selected_font, 'size') else 20
+    curr_y = y
+    for line in selected_lines:
+        draw.text((x, curr_y), line, font=selected_font, fill=fill_color)
+        curr_y += line_h
+
+def evaluate_conversation_quota(user_phone):
+    now = datetime.utcnow()
+    current_month_str = now.strftime("%Y-%m")
+    if quota_state["current_month"] != current_month_str:
+        quota_state["current_month"] = current_month_str
+        quota_state["global_conversation_count"] = 0
+        quota_state["user_sessions"].clear()
+
+    expiry = quota_state["user_sessions"].get(user_phone)
+    if expiry and now < expiry:
+        return {"allowed": True, "is_new_session": False, "remaining": MONTHLY_FREE_LIMIT - quota_state["global_conversation_count"]}
+
+    if quota_state["global_conversation_count"] >= MONTHLY_FREE_LIMIT:
+        return {"allowed": False, "is_new_session": True, "remaining": 0}
+
+    quota_state["global_conversation_count"] += 1
+    quota_state["user_sessions"][user_phone] = now + timedelta(hours=24)
+    remaining = MONTHLY_FREE_LIMIT - quota_state["global_conversation_count"]
+    return {"allowed": True, "is_new_session": True, "remaining": remaining}
+
+# ============================================================================
+# 3. WHATSAPP WEBHOOK ROUTE
+# ============================================================================
+@app.route('/whatsapp', methods=['POST'])
+def whatsapp_webhook():
+    user_phone = request.values.get('From', '')
+    incoming_msg = request.values.get('Body', '').strip()
+    resp = MessagingResponse()
+    msg = resp.message()
+
+    quota = evaluate_conversation_quota(user_phone)
+    if not quota["allowed"]:
+        msg.body(
+            "⚠️ *Monthly WhatsApp Limit Reached*\n\n"
+            "This month's 1,000 free sessions are complete.\n"
+            "👉 *Update your screen anytime for FREE via Google Sheets:*\n"
+            "Resets on the 1st of next month."
+        )
+        return Response(str(resp), mimetype='application/xml')
+
+    cmd_lower = incoming_msg.lower()
+
+    if cmd_lower in ['menu', 'help', 'hi', 'hello']:
+        msg.body(
+            "🍽️ *MealSync Kitchen Hub*\n"
+            "──────────────────────\n"
+            "• `B: [dish]` -> Set Breakfast\n"
+            "• `L: [dish]` -> Set Lunch\n"
+            "• `D: [dish]` -> Set Dinner\n"
+            "• `T1: [task]` -> Set Task 1\n"
+            "• `T2: [task]` -> Set Task 2\n"
+            "• `Prep: [text]` -> Set Prep Alert\n"
+            "• `Waste: [text]` -> Set Zero-Waste Alert\n"
+            "• `View` -> View Today's Menu\n"
+        )
+        return Response(str(resp), mimetype='application/xml')
+
+    if cmd_lower == 'view':
+        view_text = (
+            "📋 *Current MealSync Dashboard:*\n"
+            f"🍳 *Breakfast:* {live_menu_store['breakfast']}\n"
+            f"🍛 *Lunch:* {live_menu_store['lunch']}\n"
+            f"🍲 *Dinner:* {live_menu_store['dinner']}\n"
+            f"⚡ *Prep:* {live_menu_store['prep']}\n"
+            f"⚠️ *Use Today:* {live_menu_store['waste']}"
+        )
+        msg.body(view_text)
+        return Response(str(resp), mimetype='application/xml')
+
+    # Update Meal/Task/Alert entries
+    updated = False
+    if incoming_msg.lower().startswith(('b:', 'breakfast:')):
+        live_menu_store['breakfast'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('l:', 'lunch:')):
+        live_menu_store['lunch'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('d:', 'dinner:')):
+        live_menu_store['dinner'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('t1:', 'task1:')):
+        live_menu_store['task1'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('t2:', 'task2:')):
+        live_menu_store['task2'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('prep:')):
+        live_menu_store['prep'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+    elif incoming_msg.lower().startswith(('waste:', 'expiring:')):
+        live_menu_store['waste'] = incoming_msg.split(':', 1)[1].strip()
+        updated = True
+
+    if updated:
+        reply = f"✅ Updated on MealSync Screen:\n👉 *{incoming_msg}*"
+        if quota["is_new_session"] and quota_state["global_conversation_count"] >= WARNING_THRESHOLD:
+            reply += f"\n\n📢 _Note: {quota['remaining']} WhatsApp sessions remaining this month._"
+        msg.body(reply)
+    else:
+        msg.body("❓ Unrecognized format. Type *Menu* for options.")
+
+    return Response(str(resp), mimetype='application/xml')
+
+# ============================================================================
+# 4. MASTER DASHBOARD IMAGE RENDERER
+# ============================================================================
+@app.route('/', methods=['GET', 'HEAD'])
+@app.route('/display.bmp', methods=['GET', 'HEAD'])
+def render_dashboard():
+    if request.method == 'HEAD':
+        return "OK", 200
+
+    # 1. Pull data from Google Sheets API with timeout protection
+    data = live_menu_store.copy()
+    try:
+        if GOOGLE_SCRIPT_URL:
+            resp = requests.get(GOOGLE_SCRIPT_URL, timeout=15)
+            if resp.status_code == 200:
+                sheet_json = resp.json()
+                for k in ["breakfast", "lunch", "dinner", "task1", "task2", "prep", "waste"]:
+                    if k in sheet_json and sheet_json[k]:
+                        data[k] = sheet_json[k]
+    except Exception as e:
+        print(f"[WARN] Using memory/fallback data: {e}")
+
+    live_date = datetime.now().strftime("%a, %d %b %Y").upper()
+
+    # 2. Create 800x600 Supersampled Canvas (Grayscale Mode)
+    img = Image.new("L", (800, 600), 255)
+    draw = ImageDraw.Draw(img)
+
+    # 3. Load Fonts
+    try:
+        eng_logo = ImageFont.truetype(FONT_HEADER_PATH, 54) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+        eng_date = ImageFont.truetype(FONT_HEADER_PATH, 38) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+        eng_section = ImageFont.truetype(FONT_HEADER_PATH, 32) if os.path.exists(FONT_HEADER_PATH) else ImageFont.load_default()
+    except:
+        eng_logo = eng_date = eng_section = ImageFont.load_default()
+
+    # Canvas Outer Border
+    draw.rectangle([0, 0, 799, 599], outline=0, width=4)
+
+    # Top Header Bar
+    draw.rectangle([0, 0, 800, 76], fill=0)
+    draw.text((24, 8), "MealSync", font=eng_logo, fill=255)
+    draw.text((320, 16), live_date, font=eng_date, fill=255)
+
+    # Dynamic Wi-Fi Signal Bars
+    try:
+        rssi = int(request.args.get('rssi', -50))
+    except (ValueError, TypeError):
+        rssi = -50
+    signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
+    wifiX, wifiY = 250, 26
+    draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255 if signal_bars >= 1 else 40)
+    draw.rectangle([wifiX + 7, wifiY + 6, wifiX + 11, wifiY + 20], fill=255 if signal_bars >= 2 else 40)
+    draw.rectangle([wifiX + 14, wifiY, wifiX + 18, wifiY + 20], fill=255 if signal_bars >= 3 else 40)
+
+    # Battery Icon
+    batX, batY = 730, 26
+    draw.rectangle([batX, batY, batX + 38, batY + 20], outline=255, width=2)
+    draw.rectangle([batX + 38, batY + 5, batX + 42, batY + 15], fill=255)
+    draw.rectangle([batX + 4, batY + 4, batX + 34, batY + 16], fill=255)
+
+    # Unified Black Sidebar (Left Column)
+    draw.rectangle([0, 72, 230, 600], fill=0)
+
+    # Section Headers (White text on black sidebar)
+    draw.text((24, 105), "BREAKFAST", font=eng_section, fill=255)
+    draw.text((24, 225), "LUNCH", font=eng_section, fill=255)
+    draw.text((24, 350), "DINNER", font=eng_section, fill=255)
+    draw.text((24, 490), "TASKS", font=eng_section, fill=255)
+
+    # Horizontal Divider Lines across the full screen
+    for y_div in [195, 315, 450]:
+        draw.line([(0, y_div), (230, y_div)], fill=255, width=3)
+        draw.line([(230, y_div), (800, y_div)], fill=0, width=3)
+
+    # Render Content Blocks with dynamic font scaling
+    draw_autofit_text(draw, data["breakfast"], 250, 85, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
+    draw_autofit_text(draw, data["lunch"], 250, 205, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
+    draw_autofit_text(draw, data["dinner"], 250, 330, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
+
+    # Kitchen Tasks (Footer Two-Column Layout)
+    draw.rectangle([250, 485, 270, 505], outline=0, width=2)
+    draw_autofit_text(draw, data["task1"], 285, 478, 230, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
+
+    draw.rectangle([530, 485, 550, 505], outline=0, width=2)
+    draw_autofit_text(draw, data["task2"], 565, 478, 210, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
+
+    # Downscale and Threshold: 800x600 -> 400x300 E-Paper Canvas
+    img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), Image.Resampling.LANCZOS)
+    img_1bit = img_downscaled.point(lambda p: 255 if p > 140 else 0, mode="1")
+
+    # Serve Raw 15,000-byte octet bitstream for the ESP32 Client
+    if "ESP32" in request.headers.get("User-Agent", ""):
+        img_epd = ImageOps.invert(img_downscaled.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
+        return Response(img_epd.tobytes(), mimetype='application/octet-stream')
+
+    # Serve standard BMP image for browser testing
+    buf = io.BytesIO()
+    img_1bit.save(buf, format='BMP')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/bmp')
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
