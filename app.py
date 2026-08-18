@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 
 # ============================================================================
-# 1. CONFIGURATION & URLS
+# 1. CONFIGURATION & RESAMPLING COMPATIBILITY
 # ============================================================================
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
@@ -20,8 +20,18 @@ FONT_HEADER_PATH  = "ProFont.ttf"
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
-# Automated download if fonts are missing from GitHub root
-def ensure_fonts_exist():
+# Pillow Version-Safe Resampling Filter
+if hasattr(Image, 'Resampling'):
+    LANCZOS_FILTER = Image.Resampling.LANCZOS
+elif hasattr(Image, 'LANCZOS'):
+    LANCZOS_FILTER = Image.LANCZOS
+elif hasattr(Image, 'ANTIALIAS'):
+    LANCZOS_FILTER = Image.ANTIALIAS
+else:
+    LANCZOS_FILTER = Image.BICUBIC
+
+# Automated Google Fonts download for Devanagari/English
+def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
@@ -29,15 +39,15 @@ def ensure_fonts_exist():
     for filename, url in font_urls.items():
         if not os.path.exists(filename) or os.path.getsize(filename) < 1000:
             try:
-                print(f"[FONT] Downloading {filename} from Google Fonts...")
+                print(f"[FONT] Downloading {filename}...")
                 r = requests.get(url, timeout=10)
                 if r.status_code == 200:
                     with open(filename, "wb") as f:
                         f.write(r.content)
             except Exception as e:
-                print(f"[FONT ERROR] Could not auto-download {filename}: {e}")
+                print(f"[FONT ERROR] Could not fetch {filename}: {e}")
 
-ensure_fonts_exist()
+ensure_fonts()
 
 fallback_data = {
     "breakfast": "पुरणपोळी, कटाची आमटी, भजी",
@@ -52,14 +62,17 @@ fallback_data = {
 # ============================================================================
 # 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI WRAPPING
 # ============================================================================
-def get_font(path, size):
-    if path and os.path.exists(path):
+def safe_font(font_path, size):
+    if font_path and os.path.exists(font_path):
         try:
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(font_path, size)
         except Exception:
             pass
-    # Secondary system search
-    for sys_f in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
+    for sys_f in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "DejaVuSans-Bold.ttf"
+    ]:
         if os.path.exists(sys_f):
             try:
                 return ImageFont.truetype(sys_f, size)
@@ -111,7 +124,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
     selected_lines = []
     
     for size in range(max_font_size, min_font_size - 1, -2):
-        test_font = get_font(font_file, size)
+        test_font = safe_font(font_file, size)
         lines = get_wrapped_lines(text_str, test_font, max_width)
         line_h = int(size * 1.28)
         total_h = len(lines) * line_h
@@ -121,7 +134,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
             break
             
     if not selected_font:
-        selected_font = get_font(font_file, min_font_size)
+        selected_font = safe_font(font_file, min_font_size)
         selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
 
     line_h = int(selected_font.size * 1.28) if hasattr(selected_font, 'size') else 26
@@ -131,7 +144,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         curr_y += line_h
 
 # ============================================================================
-# 3. MASTER IMAGE RENDERER
+# 3. MASTER IMAGE RENDERER: / & /display.bmp
 # ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
@@ -151,9 +164,9 @@ def render_display():
                         if k in sheet_json and sheet_json[k]:
                             data[k] = str(sheet_json[k])
             except Exception as e:
-                print(f"[WARN] Sheet skipped: {e}")
+                print(f"[WARN] Sheet fetch skipped: {e}")
 
-        # 2. Parse Query Params
+        # 2. Query Parameters from ESP32
         try:
             rssi = int(request.args.get('rssi', -50))
         except Exception:
@@ -167,23 +180,23 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Create 800x600 Grayscale supersampled canvas
+        # 3. 800x600 Supersampled Grayscale Canvas
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
         # Header fonts
-        font_logo = get_font(FONT_HEADER_PATH, 50)
-        font_date = get_font(FONT_HEADER_PATH, 34)
-        font_section = get_font(FONT_HEADER_PATH, 32)
-        font_badge = get_font(FONT_HEADER_PATH, 24)
+        font_logo = safe_font(FONT_HEADER_PATH, 50)
+        font_date = safe_font(FONT_HEADER_PATH, 34)
+        font_section = safe_font(FONT_HEADER_PATH, 32)
+        font_badge = safe_font(FONT_HEADER_PATH, 24)
 
-        # Header bar
+        # Header bar & outer border
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
         draw.rectangle([0, 0, 800, 76], fill=0)
         draw.text((20, 10), "MealSync", font=font_logo, fill=255)
         draw.text((250, 18), live_date, font=font_date, fill=255)
 
-        # Wi-Fi RSSI Bars
+        # Dynamic Wi-Fi RSSI Bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 205, 26
         draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255 if signal_bars >= 1 else 40)
@@ -227,16 +240,16 @@ def render_display():
         draw.rectangle([530, 485, 550, 505], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 565, 478, 210, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
 
-        # Anti-aliased downscale to 400x300 E-Paper Resolution
-        img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), Image.Resampling.LANCZOS)
+        # Downscale 800x600 -> 400x300 (Version-Safe Resampling Filter)
+        img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), LANCZOS_FILTER)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 140 else 0, mode="1")
 
-        # Stream raw 15,000 bytes for ESP32
+        # Stream raw 15,000 bytes for ESP32 Client
         if "ESP32" in request.headers.get("User-Agent", ""):
             img_epd = ImageOps.invert(img_downscaled.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # BMP for browser
+        # Deliver standard BMP for browser inspection
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
@@ -245,7 +258,7 @@ def render_display():
     except Exception as err:
         print("[CRITICAL EXCEPTION IN APP.PY]")
         traceback.print_exc()
-        return f"Internal Error: {err}", 500
+        return f"Internal Error: {err}\n\n{traceback.format_exc()}", 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
