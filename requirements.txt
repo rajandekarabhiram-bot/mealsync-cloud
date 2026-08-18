@@ -1,3 +1,4 @@
 flask
-requests
+pillow
 gunicorn
+twilio
