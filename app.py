@@ -144,7 +144,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         curr_y += line_h
 
 # ============================================================================
-# 3. MASTER IMAGE RENDERER: / & /display.bmp
+# 3. MASTER IMAGE RENDERER (Clean Header Alignment)
 # ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
@@ -166,7 +166,7 @@ def render_display():
             except Exception as e:
                 print(f"[WARN] Sheet fetch skipped: {e}")
 
-        # 2. Query Parameters from ESP32
+        # 2. Parse Query Params from ESP32
         try:
             rssi = int(request.args.get('rssi', -50))
         except Exception:
@@ -180,44 +180,55 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. 800x600 Supersampled Grayscale Canvas
+        # 3. 800x600 High-Res Canvas (Supersampled)
         img = Image.new("L", (800, 600), 255)
         draw = ImageDraw.Draw(img)
 
-        # Header fonts
-        font_logo = safe_font(FONT_HEADER_PATH, 50)
-        font_date = safe_font(FONT_HEADER_PATH, 34)
+        # Consistent Header Typography
+        font_logo = safe_font(FONT_HEADER_PATH, 44)
+        font_date = safe_font(FONT_HEADER_PATH, 28)
+        font_badge = safe_font(FONT_HEADER_PATH, 28)
         font_section = safe_font(FONT_HEADER_PATH, 32)
-        font_badge = safe_font(FONT_HEADER_PATH, 24)
 
-        # Header bar & outer border
+        # Outer Frame & Top Header Bar
         draw.rectangle([0, 0, 799, 599], outline=0, width=4)
         draw.rectangle([0, 0, 800, 76], fill=0)
-        draw.text((20, 10), "MealSync", font=font_logo, fill=255)
-        draw.text((250, 18), live_date, font=font_date, fill=255)
 
-        # Dynamic Wi-Fi RSSI Bars
+        # --- A. MealSync Logo ---
+        draw.text((20, 16), "MealSync", font=font_logo, fill=255)
+
+        # --- B. Wi-Fi RSSI Bars (Positioned with clear spacing) ---
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
-        wifiX, wifiY = 205, 26
-        draw.rectangle([wifiX, wifiY + 12, wifiX + 4, wifiY + 20], fill=255 if signal_bars >= 1 else 40)
-        draw.rectangle([wifiX + 7, wifiY + 6, wifiX + 11, wifiY + 20], fill=255 if signal_bars >= 2 else 40)
-        draw.rectangle([wifiX + 14, wifiY, wifiX + 18, wifiY + 20], fill=255 if signal_bars >= 3 else 40)
+        wifiX, wifiY = 225, 26
+        draw.rectangle([wifiX, wifiY + 14, wifiX + 4, wifiY + 22], fill=255 if signal_bars >= 1 else 40)
+        draw.rectangle([wifiX + 7, wifiY + 8, wifiX + 11, wifiY + 22], fill=255 if signal_bars >= 2 else 40)
+        draw.rectangle([wifiX + 14, wifiY + 2, wifiX + 18, wifiY + 22], fill=255 if signal_bars >= 3 else 40)
 
-        # Dynamic Battery Icon & Remaining badge
-        draw.text((630, 24), batt_str, font=font_badge, fill=255)
-        batX, batY = 724, 24
+        # --- C. Live Date (Centered comfortably) ---
+        draw.text((260, 22), live_date, font=font_date, fill=255)
+
+        # --- D. Dynamic Battery Icon & Close-Badge Alignment ---
+        batX, batY = 730, 24
         draw.rectangle([batX, batY, batX + 44, batY + 24], outline=255, width=3)
         draw.rectangle([batX + 44, batY + 6, batX + 49, batY + 18], fill=255)
 
         if batt_str == "CHG":
-            draw.polygon([(batX + 22, batY + 3), (batX + 13, batY + 13), (batX + 21, batY + 13), 
-                          (batX + 18, batY + 21), (batX + 31, batY + 10), (batX + 23, batY + 10)], fill=255)
+            # Draw lightning bolt inside battery
+            draw.polygon([
+                (batX + 22, batY + 3), (batX + 13, batY + 13), 
+                (batX + 21, batY + 13), (batX + 18, batY + 21), 
+                (batX + 31, batY + 10), (batX + 23, batY + 10)
+            ], fill=255)
         else:
             fill_w = max(0, min(36, int((batt_pct / 100.0) * 36)))
             if fill_w > 0:
                 draw.rectangle([batX + 4, batY + 4, batX + 4 + fill_w, batY + 20], fill=255)
 
-        # Sidebar & Divider lines
+        # Place the battery string close to the battery icon (Right-Aligned)
+        badge_w = get_text_width(font_badge, batt_str)
+        draw.text((batX - badge_w - 10, 22), batt_str, font=font_badge, fill=255)
+
+        # 4. Left Sidebar & Grid Dividers
         draw.rectangle([0, 72, 230, 600], fill=0)
         draw.text((24, 105), "BREAKFAST", font=font_section, fill=255)
         draw.text((24, 225), "LUNCH", font=font_section, fill=255)
@@ -228,19 +239,19 @@ def render_display():
             draw.line([(0, y_div), (230, y_div)], fill=255, width=3)
             draw.line([(230, y_div), (800, y_div)], fill=0, width=3)
 
-        # Devanagari & English Meal Content
+        # 5. Content Rendering
         draw_autofit_text(draw, data["breakfast"], 250, 85, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 250, 205, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 250, 330, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
 
-        # Tasks
+        # 6. Tasks Footer
         draw.rectangle([250, 485, 270, 505], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 285, 478, 230, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
 
         draw.rectangle([530, 485, 550, 505], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 565, 478, 210, 48, max_font_size=32, min_font_size=22, max_lines=1, fill_color=0)
 
-        # Downscale 800x600 -> 400x300 (Version-Safe Resampling Filter)
+        # 7. Downscale to 400x300 E-Paper Resolution
         img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), LANCZOS_FILTER)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 140 else 0, mode="1")
 
@@ -249,7 +260,7 @@ def render_display():
             img_epd = ImageOps.invert(img_downscaled.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Deliver standard BMP for browser inspection
+        # Deliver BMP for browser verification
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
