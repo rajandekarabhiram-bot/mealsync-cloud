@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 
 # ============================================================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION & URLS
 # ============================================================================
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
@@ -39,7 +39,8 @@ def get_wrapped_lines(text, font, max_width):
     words = text.split()
     if not words:
         return []
-    lines, current_line = [], []
+    lines = []
+    current_line = []
     for word in words:
         test_line = " ".join(current_line + [word])
         try:
@@ -93,7 +94,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         curr_y += line_h
 
 # ============================================================================
-# 3. DASHBOARD IMAGE RENDERER (`/display.bmp` & `/`)
+# 3. DASHBOARD IMAGE RENDERER (Supports /, /display.bmp)
 # ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
@@ -127,7 +128,7 @@ def render_dashboard():
     except:
         eng_logo = eng_date = eng_section = font_badge = ImageFont.load_default()
 
-    # Borders & Header Bar
+    # Outer Border & Header Bar
     draw.rectangle([0, 0, 799, 599], outline=0, width=4)
     draw.rectangle([0, 0, 800, 76], fill=0)
     draw.text((20, 10), "MealSync", font=eng_logo, fill=255)
@@ -144,7 +145,7 @@ def render_dashboard():
     draw.rectangle([wifiX + 7, wifiY + 6, wifiX + 11, wifiY + 20], fill=255 if signal_bars >= 2 else 40)
     draw.rectangle([wifiX + 14, wifiY, wifiX + 18, wifiY + 20], fill=255 if signal_bars >= 3 else 40)
 
-    # Dynamic Battery Icon & Remaining Label
+    # Dynamic Battery Icon & Remaining Days/Hours
     batt_str = request.args.get('batt', '500d+')
     try:
         batt_pct = int(request.args.get('pct', 95))
@@ -158,13 +159,14 @@ def render_dashboard():
     draw.rectangle([batX + 44, batY + 6, batX + 49, batY + 18], fill=255)
 
     if batt_str == "CHG":
+        # Charging bolt symbol
         draw.polygon([(batX + 22, batY + 3), (batX + 13, batY + 13), (batX + 21, batY + 13), (batX + 18, batY + 21), (batX + 31, batY + 10), (batX + 23, batY + 10)], fill=255)
     else:
         fill_w = int((batt_pct / 100.0) * 36)
         if fill_w > 0:
             draw.rectangle([batX + 4, batY + 4, batX + 4 + fill_w, batY + 20], fill=255)
 
-    # Sidebar & Sections
+    # Left Column Sidebar
     draw.rectangle([0, 72, 230, 600], fill=0)
     draw.text((24, 105), "BREAKFAST", font=eng_section, fill=255)
     draw.text((24, 225), "LUNCH", font=eng_section, fill=255)
@@ -175,6 +177,7 @@ def render_dashboard():
         draw.line([(0, y_div), (230, y_div)], fill=255, width=3)
         draw.line([(230, y_div), (800, y_div)], fill=0, width=3)
 
+    # Draw Meals & Tasks
     draw_autofit_text(draw, data["breakfast"], 250, 85, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
     draw_autofit_text(draw, data["lunch"], 250, 205, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
     draw_autofit_text(draw, data["dinner"], 250, 330, 520, 95, max_font_size=42, min_font_size=28, max_lines=2, fill_color=0)
@@ -189,10 +192,12 @@ def render_dashboard():
     img_downscaled = img.resize((PANEL_WIDTH, PANEL_HEIGHT), Image.Resampling.LANCZOS)
     img_1bit = img_downscaled.point(lambda p: 255 if p > 140 else 0, mode="1")
 
+    # Send raw 15,000 bytes to ESP32 Client
     if "ESP32" in request.headers.get("User-Agent", ""):
         img_epd = ImageOps.invert(img_downscaled.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
         return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
+    # Send BMP for browser inspection
     buf = io.BytesIO()
     img_1bit.save(buf, format='BMP')
     buf.seek(0)
