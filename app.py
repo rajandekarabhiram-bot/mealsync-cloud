@@ -20,9 +20,21 @@ FONT_HEADER_PATH  = "ProFont.ttf"
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
+# Universal Pillow Resampling Compatibility
+if hasattr(Image, 'Resampling'):
+    LANCZOS_FILTER = Image.Resampling.LANCZOS
+elif hasattr(Image, 'LANCZOS'):
+    LANCZOS_FILTER = Image.LANCZOS
+elif hasattr(Image, 'ANTIALIAS'):
+    LANCZOS_FILTER = Image.ANTIALIAS
+else:
+    LANCZOS_FILTER = Image.BICUBIC
+
+# Auto-download official Devanagari & English fonts
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
+        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
     }
     for filename, url in font_urls.items():
@@ -49,14 +61,29 @@ fallback_data = {
 }
 
 # ============================================================================
-# 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI WRAPPING
+# 2. BULLETPROOF DEVANAGARI SHAPING & AUTO-FITTING
 # ============================================================================
 def safe_font(font_path, size):
-    if font_path and os.path.exists(font_path):
-        try:
-            return ImageFont.truetype(font_path, size)
-        except Exception:
-            pass
+    # Try with RAQM (HarfBuzz complex script shaping) first
+    layout_mode = getattr(ImageFont, 'Layout', None)
+    raqm_engine = getattr(layout_mode, 'RAQM', None) if layout_mode else None
+
+    # Preferred font search order for Marathi
+    search_paths = [font_path, "NotoSansDevanagari-Bold.ttf", "Mukta-Bold.ttf", "Rubik-Bold.ttf"]
+    
+    for p in search_paths:
+        if p and os.path.exists(p):
+            try:
+                if raqm_engine:
+                    return ImageFont.truetype(p, size, layout_engine=raqm_engine)
+                return ImageFont.truetype(p, size)
+            except Exception:
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    pass
+
+    # System fallbacks on Linux / Render
     for sys_f in [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -67,6 +94,7 @@ def safe_font(font_path, size):
                 return ImageFont.truetype(sys_f, size)
             except Exception:
                 pass
+
     return ImageFont.load_default()
 
 def is_ascii(s):
@@ -112,10 +140,13 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
     selected_font = None
     selected_lines = []
     
+    # Generous line-height multiplier for Devanagari matras
+    line_mult = 1.35 if is_ascii(text_str) else 1.40
+    
     for size in range(max_font_size, min_font_size - 1, -1):
         test_font = safe_font(font_file, size)
         lines = get_wrapped_lines(text_str, test_font, max_width)
-        line_h = int(size * 1.25)
+        line_h = int(size * line_mult)
         total_h = len(lines) * line_h
         if len(lines) <= max_lines and total_h <= max_height:
             selected_font = test_font
@@ -126,7 +157,7 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         selected_font = safe_font(font_file, min_font_size)
         selected_lines = get_wrapped_lines(text_str, selected_font, max_width)[:max_lines]
 
-    line_h = int(selected_font.size * 1.25) if hasattr(selected_font, 'size') else 16
+    line_h = int(selected_font.size * line_mult) if hasattr(selected_font, 'size') else 18
     curr_y = y
     for line in selected_lines:
         draw.text((x, curr_y), line, font=selected_font, fill=fill_color)
@@ -169,11 +200,11 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Native 400x300 1-bit Canvas (1=White, 0=Black)
-        img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
+        # 3. Native 400x300 Canvas (Grayscale Layer for Anti-Aliased Devanagari)
+        img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
-        # Fonts
+        # Header Fonts
         font_logo = safe_font(FONT_ENGLISH_PATH, 18)
         font_date = safe_font(FONT_ENGLISH_PATH, 13)
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
@@ -184,54 +215,54 @@ def render_display():
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
         # Logo (Left aligned)
-        draw.text((10, 9), "MealSync", font=font_logo, fill=1)
+        draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi RSSI Bars (Pinned right after logo)
+        # Wi-Fi RSSI Bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 100, 14
-        draw.rectangle([wifiX, wifiY + 8, wifiX + 2, wifiY + 12], fill=1 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 12], fill=1 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 8, wifiY, wifiX + 10, wifiY + 12], fill=1 if signal_bars >= 3 else 0)
+        draw.rectangle([wifiX, wifiY + 8, wifiX + 2, wifiY + 12], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 12], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 8, wifiY, wifiX + 10, wifiY + 12], fill=255 if signal_bars >= 3 else 0)
 
-        # 🎯 Dynamic Center Alignment for Live Date
+        # Centered Live Date
         date_w = get_text_width(font_date, live_date)
         date_center_x = (PANEL_WIDTH - date_w) // 2
-        draw.text((date_center_x, 11), live_date, font=font_date, fill=1)
+        draw.text((date_center_x, 11), live_date, font=font_date, fill=255)
 
-        # Battery Icon & Adjacent Badge (Right aligned)
+        # Battery Icon & Remaining Badge (Right aligned)
         batX, batY = 362, 12
-        draw.rectangle([batX, batY, batX + 24, batY + 14], outline=1, width=1)
-        draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=1)
+        draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
+        draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
 
         if batt_str == "CHG":
             draw.polygon([
                 (batX + 12, batY + 2), (batX + 7, batY + 7), 
                 (batX + 11, batY + 7), (batX + 10, batY + 12), 
                 (batX + 17, batY + 6), (batX + 13, batY + 6)
-            ], fill=1)
+            ], fill=255)
         else:
             fill_w = max(0, min(20, int((batt_pct / 100.0) * 20)))
             if fill_w > 0:
-                draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=1)
+                draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=255)
 
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=1)
+        draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=255)
 
         # --- B. Left Sidebar & Sections ---
         sidebar_w = 118
         draw.rectangle([0, 38, sidebar_w, PANEL_HEIGHT - 1], fill=0)
 
-        draw.text((10, 52), "BREAKFAST", font=font_section, fill=1)
-        draw.text((10, 112), "LUNCH", font=font_section, fill=1)
-        draw.text((10, 175), "DINNER", font=font_section, fill=1)
-        draw.text((10, 245), "TASKS", font=font_section, fill=1)
+        draw.text((10, 52), "BREAKFAST", font=font_section, fill=255)
+        draw.text((10, 112), "LUNCH", font=font_section, fill=255)
+        draw.text((10, 175), "DINNER", font=font_section, fill=255)
+        draw.text((10, 245), "TASKS", font=font_section, fill=255)
 
         # Dividers
         for y_div in [98, 160, 228]:
-            draw.line([(0, y_div), (sidebar_w, y_div)], fill=1, width=2)
+            draw.line([(0, y_div), (sidebar_w, y_div)], fill=255, width=2)
             draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
-        # --- C. Main Meals Content ---
+        # --- C. Main Meals Content (Devanagari / English) ---
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
@@ -243,14 +274,17 @@ def render_display():
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
+        # Convert to High-Contrast 1-Bit Monochrome
+        img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
+
         # 4. Stream Raw 15,000 Bytes to ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
-            img_epd = ImageOps.invert(img.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
+            img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
         # BMP for browser inspection
         buf = io.BytesIO()
-        img.save(buf, format='BMP')
+        img_1bit.save(buf, format='BMP')
         buf.seek(0)
         return send_file(buf, mimetype='image/bmp')
 
