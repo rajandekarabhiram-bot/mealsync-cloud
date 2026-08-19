@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 
 # ============================================================================
-# 1. CONFIGURATION & RESAMPLING COMPATIBILITY
+# 1. CONFIGURATION & URLS
 # ============================================================================
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
@@ -23,7 +23,7 @@ PANEL_HEIGHT = 300
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
-        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+        "NotoSansDevanagari-Bold.ttf": "https://rawfonts.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
     }
     for filename, url in font_urls.items():
@@ -153,7 +153,7 @@ def render_display():
     try:
         data = fallback_data.copy()
         
-        # 1. Fetch live Google Sheet Data (Accepts explicit empty cells)
+        # 1. Fetch live Google Sheet Data
         if GOOGLE_SCRIPT_URL:
             try:
                 resp = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
@@ -180,7 +180,7 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Native 400x300 Grayscale Canvas (For crisp Devanagari Anti-Aliasing)
+        # 3. Native 400x300 Grayscale Canvas
         img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
@@ -194,22 +194,22 @@ def render_display():
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 38], fill=0)
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # Logo (Left aligned)
+        # Logo
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi RSSI Bars
+        # 🎯 Byte-Aligned Wi-Fi RSSI Bars (X = 96, Y = 13)
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
-        wifiX, wifiY = 100, 14
-        draw.rectangle([wifiX, wifiY + 8, wifiX + 2, wifiY + 12], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 12], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 8, wifiY, wifiX + 10, wifiY + 12], fill=255 if signal_bars >= 3 else 0)
+        wifiX, wifiY = 96, 13
+        draw.rectangle([wifiX + 2, wifiY + 10, wifiX + 4, wifiY + 14], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 7, wifiY + 6,  wifiX + 9, wifiY + 14], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 12, wifiY + 2, wifiX + 14, wifiY + 14], fill=255 if signal_bars >= 3 else 0)
 
         # Centered Live Date
         date_w = get_text_width(font_date, live_date)
         date_center_x = (PANEL_WIDTH - date_w) // 2
         draw.text((date_center_x, 11), live_date, font=font_date, fill=255)
 
-        # Battery Icon & Adjacent Badge (Right aligned)
+        # Battery Icon & Adjacent Badge
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -247,14 +247,14 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer (Enlarged & Highly Legible) ---
+        # --- D. Tasks Footer ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        # High-Contrast 1-Bit Conversion
+        # Convert to 1-Bit Monochrome
         img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
 
         # 4. Stream Raw 15,000 Bytes for ESP32
