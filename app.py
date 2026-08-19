@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 
 # ============================================================================
-# 1. CONFIGURATION & URLS
+# 1. CONFIGURATION & RESAMPLING COMPATIBILITY
 # ============================================================================
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
@@ -20,20 +20,10 @@ FONT_HEADER_PATH  = "ProFont.ttf"
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
-# Universal Pillow Resampling Filter Compatibility
-if hasattr(Image, 'Resampling'):
-    LANCZOS_FILTER = Image.Resampling.LANCZOS
-elif hasattr(Image, 'LANCZOS'):
-    LANCZOS_FILTER = Image.LANCZOS
-elif hasattr(Image, 'ANTIALIAS'):
-    LANCZOS_FILTER = Image.ANTIALIAS
-else:
-    LANCZOS_FILTER = Image.BICUBIC
-
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
-        "NotoSansDevanagari-Bold.ttf": "https://rawfonts.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
     }
     for filename, url in font_urls.items():
@@ -59,7 +49,7 @@ fallback_data = {
 }
 
 # ============================================================================
-# 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI WRAPPING
+# 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI SHAPING
 # ============================================================================
 def safe_font(font_path, size):
     layout_mode = getattr(ImageFont, 'Layout', None)
@@ -163,17 +153,16 @@ def render_display():
     try:
         data = fallback_data.copy()
         
-        # 1. Fetch live Google Sheet Data (Allows empty strings to override defaults)
+        # 1. Fetch live Google Sheet Data (Accepts explicit empty cells)
         if GOOGLE_SCRIPT_URL:
             try:
                 resp = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
                 if resp.status_code == 200:
                     sheet_json = resp.json()
-                    # Iterate through all keys and respect explicit empty strings from sheet
                     for k in ["breakfast", "lunch", "dinner", "task1", "task2", "prep", "waste"]:
                         if k in sheet_json:
                             val = str(sheet_json[k]).strip()
-                            data[k] = val if val else "—"  # Shows a clean dash if cell is empty
+                            data[k] = val if val else "—"
             except Exception as e:
                 print(f"[WARN] Sheet fetch error: {e}")
 
@@ -191,7 +180,7 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Native 400x300 Canvas (Grayscale Layer for Anti-Aliasing)
+        # 3. Native 400x300 Grayscale Canvas (For crisp Devanagari Anti-Aliasing)
         img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
@@ -205,7 +194,7 @@ def render_display():
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 38], fill=0)
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # Logo
+        # Logo (Left aligned)
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
         # Wi-Fi RSSI Bars
@@ -220,7 +209,7 @@ def render_display():
         date_center_x = (PANEL_WIDTH - date_w) // 2
         draw.text((date_center_x, 11), live_date, font=font_date, fill=255)
 
-        # Battery Icon & Adjacent Badge
+        # Battery Icon & Adjacent Badge (Right aligned)
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -258,22 +247,22 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer ---
+        # --- D. Tasks Footer (Enlarged & Highly Legible) ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        # Convert to 1-Bit Monochrome
+        # High-Contrast 1-Bit Conversion
         img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
 
-        # 4. Stream to ESP32
+        # 4. Stream Raw 15,000 Bytes for ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # BMP for browser view
+        # BMP for browser verification
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
