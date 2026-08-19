@@ -20,7 +20,7 @@ FONT_HEADER_PATH  = "ProFont.ttf"
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
-# Universal Pillow Resampling Compatibility
+# Universal Pillow Resampling Filter Compatibility
 if hasattr(Image, 'Resampling'):
     LANCZOS_FILTER = Image.Resampling.LANCZOS
 elif hasattr(Image, 'LANCZOS'):
@@ -30,23 +30,21 @@ elif hasattr(Image, 'ANTIALIAS'):
 else:
     LANCZOS_FILTER = Image.BICUBIC
 
-# Auto-download official Devanagari & English fonts
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
-        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+        "NotoSansDevanagari-Bold.ttf": "https://rawfonts.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
     }
     for filename, url in font_urls.items():
         if not os.path.exists(filename) or os.path.getsize(filename) < 1000:
             try:
-                print(f"[FONT] Downloading {filename}...")
                 r = requests.get(url, timeout=10)
                 if r.status_code == 200:
                     with open(filename, "wb") as f:
                         f.write(r.content)
-            except Exception as e:
-                print(f"[FONT ERROR] Could not fetch {filename}: {e}")
+            except Exception:
+                pass
 
 ensure_fonts()
 
@@ -61,14 +59,11 @@ fallback_data = {
 }
 
 # ============================================================================
-# 2. BULLETPROOF DEVANAGARI SHAPING & AUTO-FITTING
+# 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI WRAPPING
 # ============================================================================
 def safe_font(font_path, size):
-    # Try with RAQM (HarfBuzz complex script shaping) first
     layout_mode = getattr(ImageFont, 'Layout', None)
     raqm_engine = getattr(layout_mode, 'RAQM', None) if layout_mode else None
-
-    # Preferred font search order for Marathi
     search_paths = [font_path, "NotoSansDevanagari-Bold.ttf", "Mukta-Bold.ttf", "Rubik-Bold.ttf"]
     
     for p in search_paths:
@@ -83,12 +78,7 @@ def safe_font(font_path, size):
                 except Exception:
                     pass
 
-    # System fallbacks on Linux / Render
-    for sys_f in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "DejaVuSans-Bold.ttf"
-    ]:
+    for sys_f in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
         if os.path.exists(sys_f):
             try:
                 return ImageFont.truetype(sys_f, size)
@@ -139,8 +129,6 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
     font_file = FONT_ENGLISH_PATH if is_ascii(text_str) else FONT_MARATHI_PATH
     selected_font = None
     selected_lines = []
-    
-    # Generous line-height multiplier for Devanagari matras
     line_mult = 1.35 if is_ascii(text_str) else 1.40
     
     for size in range(max_font_size, min_font_size - 1, -1):
@@ -173,18 +161,21 @@ def render_display():
         return "OK", 200
 
     try:
-        # 1. Fetch live Google Sheet Data
         data = fallback_data.copy()
+        
+        # 1. Fetch live Google Sheet Data (Allows empty strings to override defaults)
         if GOOGLE_SCRIPT_URL:
             try:
                 resp = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
                 if resp.status_code == 200:
                     sheet_json = resp.json()
+                    # Iterate through all keys and respect explicit empty strings from sheet
                     for k in ["breakfast", "lunch", "dinner", "task1", "task2", "prep", "waste"]:
-                        if k in sheet_json and sheet_json[k]:
-                            data[k] = str(sheet_json[k])
+                        if k in sheet_json:
+                            val = str(sheet_json[k]).strip()
+                            data[k] = val if val else "—"  # Shows a clean dash if cell is empty
             except Exception as e:
-                print(f"[WARN] Sheet fetch skipped: {e}")
+                print(f"[WARN] Sheet fetch error: {e}")
 
         # 2. Query Params from ESP32
         try:
@@ -200,11 +191,11 @@ def render_display():
 
         live_date = datetime.now().strftime("%a, %d %b %Y").upper()
 
-        # 3. Native 400x300 Canvas (Grayscale Layer for Anti-Aliased Devanagari)
+        # 3. Native 400x300 Canvas (Grayscale Layer for Anti-Aliasing)
         img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
-        # Header Fonts
+        # Fonts
         font_logo = safe_font(FONT_ENGLISH_PATH, 18)
         font_date = safe_font(FONT_ENGLISH_PATH, 13)
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
@@ -214,7 +205,7 @@ def render_display():
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 38], fill=0)
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # Logo (Left aligned)
+        # Logo
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
         # Wi-Fi RSSI Bars
@@ -229,7 +220,7 @@ def render_display():
         date_center_x = (PANEL_WIDTH - date_w) // 2
         draw.text((date_center_x, 11), live_date, font=font_date, fill=255)
 
-        # Battery Icon & Remaining Badge (Right aligned)
+        # Battery Icon & Adjacent Badge
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -262,27 +253,27 @@ def render_display():
             draw.line([(0, y_div), (sidebar_w, y_div)], fill=255, width=2)
             draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
-        # --- C. Main Meals Content (Devanagari / English) ---
+        # --- C. Main Meals Content ---
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer (Enlarged & Readable) ---
+        # --- D. Tasks Footer ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        # Convert to High-Contrast 1-Bit Monochrome
+        # Convert to 1-Bit Monochrome
         img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
 
-        # 4. Stream Raw 15,000 Bytes to ESP32
+        # 4. Stream to ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # BMP for browser inspection
+        # BMP for browser view
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
