@@ -40,7 +40,7 @@ ensure_fonts()
 
 fallback_data = {
     "breakfast": "पुरणपोळी, कटाची आमटी, भजी",
-    "lunch": "वरण भात, चपाती, वांग्याची भाजी, कोशिंबीर, पापड",
+    "lunch": "वरण भात, पोळी, वांग्याची भाजी, कोशिंबीर, पापड",
     "dinner": "मसाला खिचडी, कढी, पापड",
     "task1": "दूध आणा",
     "task2": "भाजी धुवा",
@@ -49,7 +49,7 @@ fallback_data = {
 }
 
 # ============================================================================
-# 2. BULLETPROOF TYPOGRAPHY & DEVANAGARI SHAPING
+# 2. TYPOGRAPHY HELPERS
 # ============================================================================
 def safe_font(font_path, size):
     layout_mode = getattr(ImageFont, 'Layout', None)
@@ -178,15 +178,22 @@ def render_display():
         except Exception:
             batt_pct = 95
 
-        live_date = datetime.now().strftime("%a, %d %b %Y").upper()
+        # 🎯 Option C: Header Live Date + Low Battery Sub-Notice
+        base_date = datetime.now().strftime("%a, %d %b %Y").upper()
+        if batt_pct <= 20 and batt_str != "CHG":
+            live_date = f"{base_date} • CHG BATTERY"
+            date_font_size = 11  # Scaled down to fit warning in header cleanly
+        else:
+            live_date = base_date
+            date_font_size = 13
 
-        # 3. Native 400x300 Grayscale Canvas
+        # 3. Canvas Setup
         img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
         # Fonts
         font_logo = safe_font(FONT_ENGLISH_PATH, 18)
-        font_date = safe_font(FONT_ENGLISH_PATH, 13)
+        font_date = safe_font(FONT_ENGLISH_PATH, date_font_size)
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
         font_section = safe_font(FONT_ENGLISH_PATH, 15)
 
@@ -197,19 +204,20 @@ def render_display():
         # Logo
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
-        # 🎯 Byte-Aligned Wi-Fi RSSI Bars (X = 96, Y = 13)
+        # Byte-Aligned Wi-Fi Bars (X = 96, Y = 13)
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96, 13
         draw.rectangle([wifiX + 2, wifiY + 10, wifiX + 4, wifiY + 14], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + 7, wifiY + 6,  wifiX + 9, wifiY + 14], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 12, wifiY + 2, wifiX + 14, wifiY + 14], fill=255 if signal_bars >= 3 else 0)
 
-        # Centered Live Date
+        # Centered Date / Alert Notice
         date_w = get_text_width(font_date, live_date)
         date_center_x = (PANEL_WIDTH - date_w) // 2
-        draw.text((date_center_x, 11), live_date, font=font_date, fill=255)
+        date_y = 12 if date_font_size == 11 else 11
+        draw.text((date_center_x, date_y), live_date, font=font_date, fill=255)
 
-        # Battery Icon & Adjacent Badge
+        # Battery Icon & Label
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -247,22 +255,20 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer ---
+        # --- D. Tasks Footer (Unchanged) ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        # Convert to 1-Bit Monochrome
+        # 1-Bit Conversion
         img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
 
-        # 4. Stream Raw 15,000 Bytes for ESP32
         if "ESP32" in request.headers.get("User-Agent", ""):
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # BMP for browser verification
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
