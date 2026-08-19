@@ -178,13 +178,13 @@ def render_display():
         except Exception:
             batt_pct = 95
 
-        # 🎯 Option C: Header Live Date + Low Battery Sub-Notice
+        # 🎯 Header Caution Indicator (Only for Low Battery <= 20% when not charging)
         base_date = datetime.now().strftime("%a, %d %b %Y").upper()
         if batt_pct <= 20 and batt_str != "CHG":
-            live_date = f"{base_date} • CHG BATTERY"
-            date_font_size = 11  # Scaled down to fit warning in header cleanly
+            live_date_text = f"{base_date} • CHG REQ"
+            date_font_size = 12
         else:
-            live_date = base_date
+            live_date_text = base_date
             date_font_size = 13
 
         # 3. Canvas Setup
@@ -211,13 +211,13 @@ def render_display():
         draw.rectangle([wifiX + 7, wifiY + 6,  wifiX + 9, wifiY + 14], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 12, wifiY + 2, wifiX + 14, wifiY + 14], fill=255 if signal_bars >= 3 else 0)
 
-        # Centered Date / Alert Notice
-        date_w = get_text_width(font_date, live_date)
+        # Centered Live Date & Caution Sub-Notice
+        date_w = get_text_width(font_date, live_date_text)
         date_center_x = (PANEL_WIDTH - date_w) // 2
-        date_y = 12 if date_font_size == 11 else 11
-        draw.text((date_center_x, date_y), live_date, font=font_date, fill=255)
+        date_y = 12 if date_font_size == 12 else 11
+        draw.text((date_center_x, date_y), live_date_text, font=font_date, fill=255)
 
-        # Battery Icon & Label
+        # Battery Icon & Adjacent Badge
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -255,7 +255,7 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer (Unchanged) ---
+        # --- D. Tasks Footer ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
