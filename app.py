@@ -2,20 +2,19 @@ import os
 import io
 import requests
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 app = Flask(__name__)
 
-# ============================================================================
-# 1. CONFIGURATION & URLS
-# ============================================================================
+# IST Timezone (+05:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 FONT_ENGLISH_PATH = "Rubik-Bold.ttf"
 FONT_MARATHI_PATH = "Mukta-Bold.ttf"
-FONT_HEADER_PATH  = "ProFont.ttf"
 
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
@@ -23,7 +22,6 @@ PANEL_HEIGHT = 300
 def ensure_fonts():
     font_urls = {
         "Mukta-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/mukta/Mukta-Bold.ttf",
-        "NotoSansDevanagari-Bold.ttf": "https://rawfonts.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
     }
     for filename, url in font_urls.items():
@@ -43,39 +41,14 @@ fallback_data = {
     "lunch": "वरण भात, पोळी, वांग्याची भाजी, कोशिंबीर, पापड",
     "dinner": "मसाला खिचडी, कढी, पापड",
     "task1": "दूध आणा",
-    "task2": "भाजी धुवा",
-    "prep": "काजू भिजवून ठेवा",
-    "waste": "उघडे दूध, पालक"
+    "task2": "भाजी धुवा"
 }
 
-# ============================================================================
-# 2. TYPOGRAPHY HELPERS
-# ============================================================================
 def safe_font(font_path, size):
-    layout_mode = getattr(ImageFont, 'Layout', None)
-    raqm_engine = getattr(layout_mode, 'RAQM', None) if layout_mode else None
-    search_paths = [font_path, "NotoSansDevanagari-Bold.ttf", "Mukta-Bold.ttf", "Rubik-Bold.ttf"]
-    
-    for p in search_paths:
-        if p and os.path.exists(p):
-            try:
-                if raqm_engine:
-                    return ImageFont.truetype(p, size, layout_engine=raqm_engine)
-                return ImageFont.truetype(p, size)
-            except Exception:
-                try:
-                    return ImageFont.truetype(p, size)
-                except Exception:
-                    pass
-
-    for sys_f in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
-        if os.path.exists(sys_f):
-            try:
-                return ImageFont.truetype(sys_f, size)
-            except Exception:
-                pass
-
-    return ImageFont.load_default()
+    try:
+        return ImageFont.truetype(font_path, size)
+    except Exception:
+        return ImageFont.load_default()
 
 def is_ascii(s):
     return all(ord(c) < 128 for c in s)
@@ -85,18 +58,13 @@ def get_text_width(font, text):
         bbox = font.getbbox(text)
         return bbox[2] - bbox[0]
     except Exception:
-        try:
-            w, _ = font.getsize(text)
-            return w
-        except Exception:
-            return len(text) * 8
+        return len(text) * 8
 
 def get_wrapped_lines(text, font, max_width):
     words = str(text).strip().split()
     if not words:
         return []
-    lines = []
-    curr = []
+    lines, curr = [], []
     for w in words:
         test_line = " ".join(curr + [w])
         if get_text_width(font, test_line) <= max_width:
@@ -112,7 +80,7 @@ def get_wrapped_lines(text, font, max_width):
         lines.append(" ".join(curr))
     return lines
 
-def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size=20, min_font_size=13, max_lines=2, fill_color=0):
+def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -141,9 +109,6 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         draw.text((x, curr_y), line, font=selected_font, fill=fill_color)
         curr_y += line_h
 
-# ============================================================================
-# 3. MASTER IMAGE RENDERER
-# ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -159,14 +124,14 @@ def render_display():
                 resp = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
                 if resp.status_code == 200:
                     sheet_json = resp.json()
-                    for k in ["breakfast", "lunch", "dinner", "task1", "task2", "prep", "waste"]:
+                    for k in ["breakfast", "lunch", "dinner", "task1", "task2"]:
                         if k in sheet_json:
                             val = str(sheet_json[k]).strip()
                             data[k] = val if val else "—"
             except Exception as e:
                 print(f"[WARN] Sheet fetch error: {e}")
 
-        # 2. Query Params from ESP32
+        # 2. Query Params
         try:
             rssi = int(request.args.get('rssi', -50))
         except Exception:
@@ -178,8 +143,16 @@ def render_display():
         except Exception:
             batt_pct = 95
 
-        # 🎯 Header Caution Indicator (Only for Low Battery <= 20% when not charging)
-        base_date = datetime.now().strftime("%a, %d %b %Y").upper()
+        # 3. Timezone-Aware IST Date & Switchover Logic
+        now_ist = datetime.now(IST)
+        # If after 8:30 PM (20:30 IST), display TOMORROW'S date on the top bar
+        if now_ist.hour > 20 or (now_ist.hour == 20 and now_ist.minute >= 30):
+            display_date = now_ist + timedelta(days=1)
+        else:
+            display_date = now_ist
+
+        base_date = display_date.strftime("%a, %d %b %Y").upper()
+
         if batt_pct <= 20 and batt_str != "CHG":
             live_date_text = f"{base_date} • CHG REQ"
             date_font_size = 12
@@ -187,37 +160,33 @@ def render_display():
             live_date_text = base_date
             date_font_size = 13
 
-        # 3. Canvas Setup
         img = Image.new("L", (PANEL_WIDTH, PANEL_HEIGHT), 255)
         draw = ImageDraw.Draw(img)
 
-        # Fonts
         font_logo = safe_font(FONT_ENGLISH_PATH, 18)
         font_date = safe_font(FONT_ENGLISH_PATH, date_font_size)
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
         font_section = safe_font(FONT_ENGLISH_PATH, 15)
 
-        # --- A. Header Bar ---
+        # Header Bar
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 38], fill=0)
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
-
-        # Logo
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
-        # Byte-Aligned Wi-Fi Bars (X = 96, Y = 13)
+        # Wi-Fi RSSI Bars (X = 96, Y = 13)
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96, 13
         draw.rectangle([wifiX + 2, wifiY + 10, wifiX + 4, wifiY + 14], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + 7, wifiY + 6,  wifiX + 9, wifiY + 14], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 12, wifiY + 2, wifiX + 14, wifiY + 14], fill=255 if signal_bars >= 3 else 0)
 
-        # Centered Live Date & Caution Sub-Notice
+        # Centered Live Date
         date_w = get_text_width(font_date, live_date_text)
         date_center_x = (PANEL_WIDTH - date_w) // 2
         date_y = 12 if date_font_size == 12 else 11
         draw.text((date_center_x, date_y), live_date_text, font=font_date, fill=255)
 
-        # Battery Icon & Adjacent Badge
+        # Battery Icon & Label
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -236,33 +205,28 @@ def render_display():
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=255)
 
-        # --- B. Left Sidebar & Sections ---
+        # Left Sidebar & Sections
         sidebar_w = 118
         draw.rectangle([0, 38, sidebar_w, PANEL_HEIGHT - 1], fill=0)
-
         draw.text((10, 52), "BREAKFAST", font=font_section, fill=255)
         draw.text((10, 112), "LUNCH", font=font_section, fill=255)
         draw.text((10, 175), "DINNER", font=font_section, fill=255)
         draw.text((10, 245), "TASKS", font=font_section, fill=255)
 
-        # Dividers
         for y_div in [98, 160, 228]:
             draw.line([(0, y_div), (sidebar_w, y_div)], fill=255, width=2)
             draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
-        # --- C. Main Meals Content ---
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
-        # --- D. Tasks Footer ---
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264, 243, 278, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
-        # 1-Bit Conversion
         img_1bit = img.point(lambda p: 255 if p > 160 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", ""):
