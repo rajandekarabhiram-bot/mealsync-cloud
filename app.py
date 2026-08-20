@@ -8,9 +8,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 app = Flask(__name__)
 
-# IST Timezone (+05:30)
+# Indian Standard Time (UTC +5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
+# Replace with your actual Google Script Web App Executable URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
 FONT_ENGLISH_PATH = "Rubik-Bold.ttf"
@@ -18,6 +19,9 @@ FONT_MARATHI_PATH = "Mukta-Bold.ttf"
 
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
+
+# In-memory version tracker for Solution B micro-heartbeats
+current_menu_version = 1
 
 def ensure_fonts():
     font_urls = {
@@ -109,6 +113,23 @@ def draw_autofit_text(draw, text_str, x, y, max_width, max_height, max_font_size
         draw.text((x, curr_y), line, font=selected_font, fill=fill_color)
         curr_y += line_h
 
+# ============================================================================
+# VERSION CONTROL ENDPOINTS (Solution B Micro-Heartbeat)
+# ============================================================================
+@app.route('/sheet-updated', methods=['POST'])
+def handle_sheet_webhook():
+    global current_menu_version
+    current_menu_version += 1
+    print(f"[SHEET WEBHOOK] Google Sheet modified! Incrementing Version to: {current_menu_version}")
+    return {"status": "ok", "version": current_menu_version}, 200
+
+@app.route('/version', methods=['GET'])
+def get_version():
+    return {"v": current_menu_version}, 200
+
+# ============================================================================
+# MASTER DISPLAY RENDERING ENDPOINT
+# ============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -145,7 +166,6 @@ def render_display():
 
         # 3. Timezone-Aware IST Date & Switchover Logic
         now_ist = datetime.now(IST)
-        # If after 8:30 PM (20:30 IST), display TOMORROW'S date on the top bar
         if now_ist.hour > 20 or (now_ist.hour == 20 and now_ist.minute >= 30):
             display_date = now_ist + timedelta(days=1)
         else:
@@ -173,20 +193,20 @@ def render_display():
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
         draw.text((10, 9), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi RSSI Bars (X = 96, Y = 13)
+        # Wi-Fi RSSI Bars (Byte-aligned X = 96, Y = 13)
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96, 13
         draw.rectangle([wifiX + 2, wifiY + 10, wifiX + 4, wifiY + 14], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + 7, wifiY + 6,  wifiX + 9, wifiY + 14], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 12, wifiY + 2, wifiX + 14, wifiY + 14], fill=255 if signal_bars >= 3 else 0)
 
-        # Centered Live Date
+        # Centered Date
         date_w = get_text_width(font_date, live_date_text)
         date_center_x = (PANEL_WIDTH - date_w) // 2
         date_y = 12 if date_font_size == 12 else 11
         draw.text((date_center_x, date_y), live_date_text, font=font_date, fill=255)
 
-        # Battery Icon & Label
+        # Battery Icon & Adjacent Badge
         batX, batY = 362, 12
         draw.rectangle([batX, batY, batX + 24, batY + 14], outline=255, width=1)
         draw.rectangle([batX + 24, batY + 3, batX + 26, batY + 11], fill=255)
@@ -205,7 +225,7 @@ def render_display():
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 5, 11), batt_str, font=font_badge, fill=255)
 
-        # Left Sidebar & Sections
+        # Sidebar & Sections
         sidebar_w = 118
         draw.rectangle([0, 38, sidebar_w, PANEL_HEIGHT - 1], fill=0)
         draw.text((10, 52), "BREAKFAST", font=font_section, fill=255)
@@ -217,10 +237,12 @@ def render_display():
             draw.line([(0, y_div), (sidebar_w, y_div)], fill=255, width=2)
             draw.line([(sidebar_w, y_div), (PANEL_WIDTH, y_div)], fill=0, width=2)
 
+        # Meal Texts
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_font_size=18, min_font_size=13, max_lines=2, fill_color=0)
 
+        # Tasks Checkboxes
         draw.rectangle([128, 243, 142, 257], outline=0, width=2)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_font_size=17, min_font_size=14, max_lines=1, fill_color=0)
 
