@@ -20,8 +20,12 @@ CANVAS_H = PANEL_HEIGHT * SCALE
 FONT_ENGLISH_PATH = "Rubik-Bold.ttf"
 FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 
-# In-memory telemetry log buffer (Keeps last 500 events)
 DEVICE_LOGS = []
+LAST_USER_EDIT_INFO = {
+    "time": "No edits logged yet",
+    "cell": "—",
+    "val": "—"
+}
 
 def ensure_fonts():
     font_urls = {
@@ -72,20 +76,45 @@ def get_target_date_and_data():
     return date_str, data
 
 # ============================================================================
-# LOGGING ENDPOINTS
+# LOGGING & WEBHOOK ENDPOINTS
 # ============================================================================
+@app.route('/sheet-edited', methods=['POST'])
+def handle_sheet_edited():
+    try:
+        payload = request.get_json(force=True)
+        now_str = datetime.now(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
+        
+        LAST_USER_EDIT_INFO["time"] = payload.get("user_trigger_time", now_str)
+        LAST_USER_EDIT_INFO["cell"] = payload.get("edited_cell", "Unknown")
+        LAST_USER_EDIT_INFO["val"] = payload.get("new_value", "Unknown")
+
+        log_entry = {
+            "timestamp": now_str,
+            "event": f"SHEET_EDITED ({LAST_USER_EDIT_INFO['cell']})",
+            "batt": "—",
+            "pct": 100,
+            "v": 0.0,
+            "wifi_strength": "—",
+            "hash": f"Val: {LAST_USER_EDIT_INFO['val']}",
+            "sleep_sec": 0
+        }
+        DEVICE_LOGS.insert(0, log_entry)
+        return {"status": "edit_registered"}, 200
+    except Exception as e:
+        return {"error": str(e)}, 400
+
 @app.route('/log', methods=['POST'])
 def receive_device_log():
     try:
         log_entry = request.get_json(force=True)
         now_str = datetime.now(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
         log_entry['timestamp'] = now_str
+        log_entry['last_user_edit'] = LAST_USER_EDIT_INFO['time']
         
         DEVICE_LOGS.insert(0, log_entry)
         if len(DEVICE_LOGS) > 500:
             DEVICE_LOGS.pop()
             
-        print(f"[DEVICE LOG] {log_entry}")
         return {"status": "logged"}, 200
     except Exception as e:
         return {"error": str(e)}, 400
@@ -97,34 +126,44 @@ def view_logs():
     <html>
     <head>
         <title>MealSync Telemetry & Behaviour Logs</title>
-        <meta http-equiv="refresh" content="30">
+        <meta http-equiv="refresh" content="20">
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
-            h2 { margin-bottom: 8px; }
-            .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
+            h2 { margin-bottom: 4px; }
+            .subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 16px; }
+            .info-card { background: #1e293b; border-left: 4px solid #0284c7; padding: 12px 16px; margin-bottom: 20px; border-radius: 4px; font-size: 13px; }
             table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
             th, td { padding: 12px 16px; text-align: left; font-size: 13px; border-bottom: 1px solid #334155; }
             th { background: #334155; color: #cbd5e1; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
             tr:hover { background: #273549; }
             .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
             .badge-sync { background: #0284c7; color: white; }
-            .badge-sleep { background: #64748b; color: white; }
             .badge-refresh { background: #16a34a; color: white; }
-            .badge-warn { background: #dc2626; color: white; }
+            .badge-edit { background: #d97706; color: white; }
+            .badge-live { background: #9333ea; color: white; }
+            .badge-sleep { background: #64748b; color: white; }
+            .wifi-tag { font-weight: 600; color: #38bdf8; }
         </style>
     </head>
     <body>
-        <h2>📊 MealSync Device Telemetry Logs</h2>
-        <div class="subtitle">Auto-refreshes every 30s • Real-time ESP32 sync, sleep & battery trace</div>
+        <h2>📊 MealSync Device Telemetry & Sync Logs</h2>
+        <div class="subtitle">Auto-refreshes every 20s • Real-time ESP32 sync & user edit trace</div>
+        
+        <div class="info-card">
+            <b>📝 Last User Sheet Edit:</b> {{ edit_info.time }} &nbsp;|&nbsp; 
+            <b>Cell:</b> {{ edit_info.cell }} &nbsp;|&nbsp; 
+            <b>New Value:</b> {{ edit_info.val }}
+        </div>
+
         <table>
             <thead>
                 <tr>
-                    <th>Timestamp</th>
+                    <th>Timestamp (IST)</th>
                     <th>Action / Event</th>
                     <th>Battery</th>
                     <th>Voltage</th>
-                    <th>RSSI</th>
-                    <th>Cloud Hash</th>
+                    <th>Wi-Fi Strength</th>
+                    <th>Content Hash / Value</th>
                     <th>Next Sleep Slot</th>
                 </tr>
             </thead>
@@ -133,7 +172,11 @@ def view_logs():
                 <tr>
                     <td>{{ log.timestamp }}</td>
                     <td>
-                        {% if 'REFRESH' in log.event %}
+                        {% if 'SHEET_EDITED' in log.event %}
+                            <span class="badge badge-edit">{{ log.event }}</span>
+                        {% elif 'LIVE_LOOP' in log.event %}
+                            <span class="badge badge-live">{{ log.event }}</span>
+                        {% elif 'REFRESH' in log.event %}
                             <span class="badge badge-refresh">{{ log.event }}</span>
                         {% elif 'NO_CHANGE' in log.event %}
                             <span class="badge badge-sync">{{ log.event }}</span>
@@ -143,9 +186,15 @@ def view_logs():
                     </td>
                     <td><b>{{ log.batt }}</b> ({{ log.pct }}%)</td>
                     <td>{{ log.v }} V</td>
-                    <td>{{ log.rssi }} dBm</td>
+                    <td><span class="wifi-tag">{{ log.wifi_strength }}</span></td>
                     <td><code>{{ log.hash }}</code></td>
-                    <td>{{ log.sleep_sec }}s (~{{ "%.1f"|format(log.sleep_sec / 3600.0) }}h)</td>
+                    <td>
+                        {% if log.sleep_sec > 0 %}
+                            {{ log.sleep_sec }}s (~{{ "%.1f"|format(log.sleep_sec / 3600.0) }}h)
+                        {% else %}
+                            Live (No Sleep)
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -153,7 +202,7 @@ def view_logs():
     </body>
     </html>
     """
-    return render_template_string(html_template, logs=DEVICE_LOGS)
+    return render_template_string(html_template, logs=DEVICE_LOGS, edit_info=LAST_USER_EDIT_INFO)
 
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
@@ -163,7 +212,7 @@ def get_content_hash():
     return {"hash": content_hash}, 200
 
 # ============================================================================
-# DISPLAY RENDER
+# MASTER DISPLAY RENDER
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
