@@ -384,3 +384,18 @@ def render_display():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+from planner import generate_day_plan
+
+@app.route('/api/ai-generate-week', methods=['POST'])
+def auto_plan_full_week():
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    results = {}
+    
+    for day in days:
+        try:
+            results[day] = generate_day_plan(day)
+        except Exception as e:
+            results[day] = {"error": str(e)}
+            
+    return jsonify({"status": "week_generated", "details": results}), 200
