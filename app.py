@@ -16,7 +16,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 # ============================================================================
 # If you have your published Google Sheet CSV URL in Render Environment variables:
 SHEET_CSV_URL = os.environ.get(
-    "SHEET_CSV_URL",
+    "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec",
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5KxJzQo_YOUR_SHEET_ID/pub?output=csv"
 )
 
