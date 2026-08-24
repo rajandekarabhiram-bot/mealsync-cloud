@@ -1,6 +1,5 @@
 import os
 import io
-import csv
 import hashlib
 import requests
 import traceback
@@ -12,15 +11,11 @@ app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # ============================================================================
-# 1. GOOGLE SHEETS CSV EXPORT URL CONFIGURATION
+# 1. LIVE GOOGLE APPS SCRIPT WEB APP URL
 # ============================================================================
-# If you have your published Google Sheet CSV URL in Render Environment variables:
-SHEET_CSV_URL = os.environ.get(
-    "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec",
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5KxJzQo_YOUR_SHEET_ID/pub?output=csv"
-)
+GOOGLE_SCRIPT_EXEC_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
-# 400x300 Canvas Dimensions for N1B4V02 (2x supersampling for clean anti-aliased text)
+# 400x300 Canvas Dimensions for N1B4V02 (2x supersampling for clean anti-aliasing)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -53,11 +48,10 @@ def ensure_fonts():
 ensure_fonts()
 
 # ============================================================================
-# 3. GOOGLE SHEETS FETCHING & 9:00 PM ROLLOVER ENGINE
+# 3. GOOGLE SCRIPT JSON INGESTION & 9:00 PM ROLLOVER
 # ============================================================================
-def fetch_menu_from_google_sheet():
+def fetch_menu_from_google_script():
     now_ist = datetime.now(IST)
-    # 9:00 PM IST Rollover to tomorrow's date & schedule
     if now_ist.hour >= 21:
         target_date = now_ist + timedelta(days=1)
     else:
@@ -76,37 +70,41 @@ def fetch_menu_from_google_sheet():
     }
 
     try:
-        res = requests.get(SHEET_CSV_URL, timeout=8)
+        # allow_redirects=True is required for Google Apps Script 302 redirects
+        res = requests.get(GOOGLE_SCRIPT_EXEC_URL, timeout=10, allow_redirects=True)
         if res.status_code == 200:
-            lines = res.text.splitlines()
-            reader = csv.reader(lines)
-            rows = list(reader)
-            
-            # Expected Google Sheet column headers: Day, Breakfast, Lunch, Dinner, Task1, Task2
-            for row in rows[1:]:
-                if len(row) >= 6 and row[0].strip().lower() == target_day.lower():
-                    return date_str, {
-                        "day": target_day,
-                        "breakfast": row[1].strip().replace("+", ",") or "—",
-                        "lunch": row[2].strip().replace("+", ",") or "—",
-                        "dinner": row[3].strip().replace("+", ",") or "—",
-                        "task1": row[4].strip().replace("+", ",") or "—",
-                        "task2": row[5].strip().replace("+", ",") or "—"
-                    }
+            data = res.json()
+            return data.get("date_str", date_str), {
+                "day": data.get("day", target_day),
+                "breakfast": str(data.get("breakfast", "—")).replace("+", ","),
+                "lunch": str(data.get("lunch", "—")).replace("+", ","),
+                "dinner": str(data.get("dinner", "—")).replace("+", ","),
+                "task1": str(data.get("task1", "—")).replace("+", ","),
+                "task2": str(data.get("task2", "—")).replace("+", ",")
+            }
     except Exception as e:
-        print(f"[ERROR] Fetching Google Sheet: {e}")
+        print(f"[ERROR] Fetching Google Apps Script: {e}")
 
     return date_str, default_data
 
 # ============================================================================
-# 4. CONTENT HASH & TELEMETRY LOGS
+# 4. CONTENT HASH & HARDWARE TELEMETRY
 # ============================================================================
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
-    date_str, data = fetch_menu_from_google_sheet()
+    date_str, data = fetch_menu_from_google_script()
     payload = f"{date_str}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
     return jsonify({"hash": content_hash}), 200
+
+@app.route('/sheet-edited', methods=['POST'])
+def handle_sheet_edited():
+    try:
+        req = request.get_json(force=True)
+        print(f"[WEBHOOK] Sheet Edited: {req}")
+        return jsonify({"status": "received"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route('/log', methods=['POST'])
 def receive_device_log():
@@ -127,7 +125,7 @@ def view_logs():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>MealSync Telemetry Logs (Google Sheets V1.0)</title>
+        <title>MealSync Telemetry Logs</title>
         <meta http-equiv="refresh" content="20">
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
@@ -248,7 +246,7 @@ def render_display():
         return "OK", 200
 
     try:
-        date_str, data = fetch_menu_from_google_sheet()
+        date_str, data = fetch_menu_from_google_script()
 
         rssi = int(request.args.get('rssi', -50))
         batt_str = str(request.args.get('batt', '500d+'))
@@ -279,7 +277,7 @@ def render_display():
         date_center_x = (CANVAS_W - date_w) // 2
         draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
 
-        # Battery Icon & Runtime Badge
+        # Battery Icon & Label
         batX, batY = 362 * SCALE, 12 * SCALE
         draw.rectangle([batX, batY, batX + 24 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 24 * SCALE, batY + 3 * SCALE, batX + 26 * SCALE, batY + 11 * SCALE], fill=255)
@@ -299,7 +297,6 @@ def render_display():
         draw.text((10 * SCALE, 175 * SCALE), "DINNER", font=font_section, fill=255)
         draw.text((10 * SCALE, 245 * SCALE), "TASKS", font=font_section, fill=255)
 
-        # Divider Grid Lines
         for y_div in [98, 160, 228]:
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
@@ -316,16 +313,16 @@ def render_display():
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Lanczos Supersampled Anti-Aliasing Downscale
+        # Lanczos Downscale
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.Resampling.LANCZOS)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
 
-        # Explicit Raw 1-bit Stream for ESP32 Firmware
+        # Raw Inverted Byte Stream for ESP32 Firmware
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Standard BMP container for Web Browser / Preview
+        # Standard BMP for Browser Preview
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
@@ -346,14 +343,14 @@ def live_preview_home():
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>MealSync • Google Sheets Live E-Paper Stream</title>
+        <title>MealSync • Google Apps Script Live Stream</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 space-y-4">
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-3xl p-5 shadow-2xl text-center space-y-4">
             <div>
-                <h1 class="text-xl font-extrabold text-white">🍳 MealSync Live Screen Preview</h1>
-                <p class="text-xs text-slate-400 mt-1">Live 400×300 monochrome stream synced with Google Sheets</p>
+                <h1 class="text-xl font-extrabold text-white">🍳 MealSync Live Screen</h1>
+                <p class="text-xs text-slate-400 mt-1">Live stream synced with Google Apps Script</p>
             </div>
             
             <div class="bg-slate-950 p-2 rounded-2xl border border-slate-700 overflow-hidden">
