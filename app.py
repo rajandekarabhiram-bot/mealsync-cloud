@@ -1,6 +1,5 @@
 import os
 import io
-import json
 import hashlib
 import requests
 import traceback
@@ -11,10 +10,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Live Google Apps Script Endpoint
+# Live Google Apps Script Web App Endpoint
 GOOGLE_SCRIPT_EXEC_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
-# 400x300 Canvas Dimensions (Supersampled 2x)
+# 400x300 Dimensions for N1B4V02 (2x Supersampled Rendering)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -107,6 +106,15 @@ def get_content_hash():
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
     return jsonify({"hash": content_hash}), 200
 
+@app.route('/sheet-edited', methods=['POST'])
+def handle_sheet_edited():
+    try:
+        req = request.get_json(force=True)
+        print(f"[WEBHOOK] Sheet Edited: {req}")
+        return jsonify({"status": "received"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
 @app.route('/log', methods=['POST'])
 def receive_device_log():
     try:
@@ -171,7 +179,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 4. E-PAPER BITMAP RENDERER (400x300 1-Bit Stream)
+# 4. E-PAPER BITMAP RENDERER (Cross-version Safe Pillow Downsampling)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -253,7 +261,6 @@ def render_display():
         batt_str = str(request.args.get('batt', '500d+'))
         batt_pct = int(request.args.get('pct', 100))
 
-        # Canvas initialized in Grayscale mode (0-255)
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
@@ -303,7 +310,7 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Meal & Task text
+        # Meal & Task autofit text
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
@@ -314,8 +321,9 @@ def render_display():
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Resample down to 400x300 and convert to strict 1-bit monochrome
-        img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.Resampling.LANCZOS)
+        # ✅ Universally safe Pillow downsampling
+        resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
+        img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
 
         # Inverted raw byte delivery for ESP32 firmware
@@ -323,7 +331,7 @@ def render_display():
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Standard BMP for web browser preview
+        # Standard BMP for browser preview
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
