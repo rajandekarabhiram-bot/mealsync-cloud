@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import hashlib
 import requests
 import traceback
@@ -10,10 +11,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Live Google Apps Script Web App Endpoint
 GOOGLE_SCRIPT_EXEC_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
-# 400x300 Dimensions for N1B4V02 (2x Supersampled Rendering)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -26,7 +25,7 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 1. AUTO FONT DOWNLOADER
+# 1. ROBUST FONT DOWNLOADER
 # ============================================================================
 def ensure_fonts():
     font_urls = {
@@ -34,19 +33,20 @@ def ensure_fonts():
         "Yantramanav-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/yantramanav/Yantramanav-Bold.ttf"
     }
     for filename, url in font_urls.items():
-        if not os.path.exists(filename) or os.path.getsize(filename) < 1000:
+        if not os.path.exists(filename) or os.path.getsize(filename) < 2000:
             try:
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
+                r = requests.get(url, timeout=12)
+                if r.status_code == 200 and len(r.content) > 2000:
                     with open(filename, "wb") as f:
                         f.write(r.content)
+                    print(f"✅ Loaded font: {filename} ({len(r.content)} bytes)")
             except Exception as e:
                 print(f"[WARN] Failed to download {filename}: {e}")
 
 ensure_fonts()
 
 # ============================================================================
-# 2. GOOGLE SCRIPT FETCHING (With Fallback)
+# 2. GOOGLE SCRIPT FETCHING WITH HARD FALLBACKS
 # ============================================================================
 FALLBACK_MENUS = {
     "Monday":    {"breakfast": "पोहे, चहा", "lunch": "वरण भात, पोळी, भेंडी", "dinner": "खिचडी, कढी, पापड", "task1": "दूध आणणे", "task2": "उद्यासाठी मटकी भिजवणे"},
@@ -75,7 +75,7 @@ def fetch_menu_from_google_script():
         "dinner": "खिचडी, कढी",
         "task1": "दूध आणणे",
         "task2": "तयारी करणे"
-    })
+    }).copy()
     default_data["day"] = target_day
 
     try:
@@ -83,14 +83,23 @@ def fetch_menu_from_google_script():
         res = session.get(GOOGLE_SCRIPT_EXEC_URL, timeout=8, allow_redirects=True)
         if res.status_code == 200:
             data = res.json()
-            return data.get("date_str", date_str), {
-                "day": data.get("day", target_day),
-                "breakfast": str(data.get("breakfast") or default_data["breakfast"]).replace("+", ","),
-                "lunch": str(data.get("lunch") or default_data["lunch"]).replace("+", ","),
-                "dinner": str(data.get("dinner") or default_data["dinner"]).replace("+", ","),
-                "task1": str(data.get("task1") or default_data["task1"]).replace("+", ","),
-                "task2": str(data.get("task2") or default_data["task2"]).replace("+", ",")
+            
+            # Clean values and ensure no empty strings
+            cleaned_data = {
+                "day": str(data.get("day") or target_day).strip(),
+                "breakfast": str(data.get("breakfast") or default_data["breakfast"]).replace("+", ",").strip(),
+                "lunch": str(data.get("lunch") or default_data["lunch"]).replace("+", ",").strip(),
+                "dinner": str(data.get("dinner") or default_data["dinner"]).replace("+", ",").strip(),
+                "task1": str(data.get("task1") or default_data["task1"]).replace("+", ",").strip(),
+                "task2": str(data.get("task2") or default_data["task2"]).replace("+", ",").strip()
             }
+            # Replace blank dashes with defaults if empty
+            for k in ["breakfast", "lunch", "dinner", "task1", "task2"]:
+                if cleaned_data[k] in ["—", "", "undefined", "null"]:
+                    cleaned_data[k] = default_data[k]
+                    
+            print(f"[FETCH SUCCESS] {target_day} => BF: {cleaned_data['breakfast']} | L: {cleaned_data['lunch']} | D: {cleaned_data['dinner']}")
+            return data.get("date_str", date_str), cleaned_data
     except Exception as e:
         print(f"[ERROR] Fetching Google Apps Script: {e}")
 
@@ -179,13 +188,15 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 4. E-PAPER BITMAP RENDERER (Cross-version Safe Pillow Downsampling)
+# 4. ROBUST BITMAP TEXT RENDERING
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
-        return ImageFont.truetype(font_path, size_1x * SCALE)
+        if os.path.exists(font_path) and os.path.getsize(font_path) > 2000:
+            return ImageFont.truetype(font_path, size_1x * SCALE)
     except Exception:
-        return ImageFont.load_default()
+        pass
+    return ImageFont.load_default()
 
 def is_ascii(s):
     return all(ord(c) < 128 for c in s)
@@ -221,6 +232,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     text_str = str(text_str).strip()
     if not text_str:
         return
+
     font_file = FONT_ENGLISH_PATH if is_ascii(text_str) else FONT_MARATHI_PATH
     selected_font = None
     selected_lines = []
@@ -255,6 +267,7 @@ def render_display():
         return "OK", 200
 
     try:
+        ensure_fonts()
         date_str, data = fetch_menu_from_google_script()
 
         rssi = int(request.args.get('rssi', -50))
@@ -310,18 +323,19 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Meal & Task autofit text
+        # Render Meals & Tasks
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
 
+        # Checkboxes
         draw.rectangle([128 * SCALE, 243 * SCALE, 142 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # ✅ Universally safe Pillow downsampling
+        # Cross-version safe downscaling
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
@@ -342,7 +356,7 @@ def render_display():
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 5. WEB PREVIEW ROOT
+# 5. LIVE WEB PREVIEW
 # ============================================================================
 @app.route('/')
 def live_preview_home():
