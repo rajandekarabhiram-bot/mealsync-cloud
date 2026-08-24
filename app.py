@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import hashlib
 import requests
 import traceback
@@ -10,12 +11,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# ============================================================================
-# 1. LIVE GOOGLE APPS SCRIPT WEB APP URL
-# ============================================================================
+# Live Google Apps Script Endpoint
 GOOGLE_SCRIPT_EXEC_URL = "https://script.google.com/macros/s/AKfycbzH0PUjBV480wqdp3pNpcOR8358La7La_jQxuJ9EcLbB84O_2GDJsojXK1zPWTiY4cZ/exec"
 
-# 400x300 Canvas Dimensions for N1B4V02 (2x supersampling for clean anti-aliasing)
+# 400x300 Canvas Dimensions (Supersampled 2x)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -28,7 +27,7 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 2. AUTO FONT DOWNLOADER
+# 1. AUTO FONT DOWNLOADER
 # ============================================================================
 def ensure_fonts():
     font_urls = {
@@ -42,14 +41,24 @@ def ensure_fonts():
                 if r.status_code == 200:
                     with open(filename, "wb") as f:
                         f.write(r.content)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[WARN] Failed to download {filename}: {e}")
 
 ensure_fonts()
 
 # ============================================================================
-# 3. GOOGLE SCRIPT JSON INGESTION & 9:00 PM ROLLOVER
+# 2. GOOGLE SCRIPT FETCHING (With Fallback)
 # ============================================================================
+FALLBACK_MENUS = {
+    "Monday":    {"breakfast": "पोहे, चहा", "lunch": "वरण भात, पोळी, भेंडी", "dinner": "खिचडी, कढी, पापड", "task1": "दूध आणणे", "task2": "उद्यासाठी मटकी भिजवणे"},
+    "Tuesday":   {"breakfast": "उपमा, खोबरे चटणी", "lunch": "पोळी, उसळ, भात", "dinner": "थालीपीठ, लोणी", "task1": "किराणा आणणे", "task2": "पीठ आंबवणे"},
+    "Wednesday": {"breakfast": "इडली, सांबार", "lunch": "वरण भात, वांगी भाजी", "dinner": "मसाला भात, कोशिंबीर", "task1": "भाजी आणणे", "task2": "दही लावणे"},
+    "Thursday":  {"breakfast": "शिरा, गरम दूध", "lunch": "पोळी, शेवभाजी, भात", "dinner": "मुगाची मऊ खिचडी", "task1": "कोथिंबीर कापणे", "task2": "दूध आणणे"},
+    "Friday":    {"breakfast": "मेथी पराठा, दही", "lunch": "वरण भात, फ्लॉवर, पोळी", "dinner": "दाल खिचडी, कढी", "task1": "मेथी निवडणे", "task2": "पीठ मळणे"},
+    "Saturday":  {"breakfast": "मिसळ पाव, लिंबू", "lunch": "पोळी, पनीर भाजी, भात", "dinner": "पावभाजी, कांदा", "task1": "मटार सोलणे", "task2": "बटाटे उकडणे"},
+    "Sunday":    {"breakfast": "डोसा, सांबार, चटणी", "lunch": "पुरणपोळी, कटाची आमटी", "dinner": "दही भात, लोणचे", "task1": "सांबार मसाला", "task2": "पोहे चाळणे"}
+}
+
 def fetch_menu_from_google_script():
     now_ist = datetime.now(IST)
     if now_ist.hour >= 21:
@@ -60,27 +69,28 @@ def fetch_menu_from_google_script():
     target_day = target_date.strftime("%A")
     date_str = target_date.strftime("%a, %d %b %Y").upper()
 
-    default_data = {
+    default_data = FALLBACK_MENUS.get(target_day, {
         "day": target_day,
-        "breakfast": "—",
-        "lunch": "—",
-        "dinner": "—",
-        "task1": "—",
-        "task2": "—"
-    }
+        "breakfast": "पोहे, चहा",
+        "lunch": "वरण भात, पोळी, भाजी",
+        "dinner": "खिचडी, कढी",
+        "task1": "दूध आणणे",
+        "task2": "तयारी करणे"
+    })
+    default_data["day"] = target_day
 
     try:
-        # allow_redirects=True is required for Google Apps Script 302 redirects
-        res = requests.get(GOOGLE_SCRIPT_EXEC_URL, timeout=10, allow_redirects=True)
+        session = requests.Session()
+        res = session.get(GOOGLE_SCRIPT_EXEC_URL, timeout=8, allow_redirects=True)
         if res.status_code == 200:
             data = res.json()
             return data.get("date_str", date_str), {
                 "day": data.get("day", target_day),
-                "breakfast": str(data.get("breakfast", "—")).replace("+", ","),
-                "lunch": str(data.get("lunch", "—")).replace("+", ","),
-                "dinner": str(data.get("dinner", "—")).replace("+", ","),
-                "task1": str(data.get("task1", "—")).replace("+", ","),
-                "task2": str(data.get("task2", "—")).replace("+", ",")
+                "breakfast": str(data.get("breakfast") or default_data["breakfast"]).replace("+", ","),
+                "lunch": str(data.get("lunch") or default_data["lunch"]).replace("+", ","),
+                "dinner": str(data.get("dinner") or default_data["dinner"]).replace("+", ","),
+                "task1": str(data.get("task1") or default_data["task1"]).replace("+", ","),
+                "task2": str(data.get("task2") or default_data["task2"]).replace("+", ",")
             }
     except Exception as e:
         print(f"[ERROR] Fetching Google Apps Script: {e}")
@@ -88,7 +98,7 @@ def fetch_menu_from_google_script():
     return date_str, default_data
 
 # ============================================================================
-# 4. CONTENT HASH & HARDWARE TELEMETRY
+# 3. CONTENT HASH & LOGGING
 # ============================================================================
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
@@ -96,15 +106,6 @@ def get_content_hash():
     payload = f"{date_str}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
     return jsonify({"hash": content_hash}), 200
-
-@app.route('/sheet-edited', methods=['POST'])
-def handle_sheet_edited():
-    try:
-        req = request.get_json(force=True)
-        print(f"[WEBHOOK] Sheet Edited: {req}")
-        return jsonify({"status": "received"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
 
 @app.route('/log', methods=['POST'])
 def receive_device_log():
@@ -170,7 +171,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 5. E-PAPER BITMAP RENDERER (400x300 Otsu 1-Bit Stream for N1B4V02)
+# 4. E-PAPER BITMAP RENDERER (400x300 1-Bit Stream)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -252,6 +253,7 @@ def render_display():
         batt_str = str(request.args.get('batt', '500d+'))
         batt_pct = int(request.args.get('pct', 100))
 
+        # Canvas initialized in Grayscale mode (0-255)
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
@@ -265,7 +267,7 @@ def render_display():
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi Signal Bars
+        # Signal bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
@@ -277,7 +279,7 @@ def render_display():
         date_center_x = (CANVAS_W - date_w) // 2
         draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
 
-        # Battery Icon & Label
+        # Battery Icon
         batX, batY = 362 * SCALE, 12 * SCALE
         draw.rectangle([batX, batY, batX + 24 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 24 * SCALE, batY + 3 * SCALE, batX + 26 * SCALE, batY + 11 * SCALE], fill=255)
@@ -289,7 +291,7 @@ def render_display():
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 10, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # Left Sidebar Sections
+        # Sidebar
         sidebar_w = 118 * SCALE
         draw.rectangle([0, 38 * SCALE, sidebar_w, CANVAS_H - 1], fill=0)
         draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_section, fill=255)
@@ -301,28 +303,27 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Autofit Meals
+        # Meal & Task text
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
 
-        # Task Checkboxes
         draw.rectangle([128 * SCALE, 243 * SCALE, 142 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Lanczos Downscale
+        # Resample down to 400x300 and convert to strict 1-bit monochrome
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.Resampling.LANCZOS)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
 
-        # Raw Inverted Byte Stream for ESP32 Firmware
+        # Inverted raw byte delivery for ESP32 firmware
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Standard BMP for Browser Preview
+        # Standard BMP for web browser preview
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
@@ -333,7 +334,7 @@ def render_display():
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 6. ROOT ROUTE - LIVE WEB PREVIEW
+# 5. WEB PREVIEW ROOT
 # ============================================================================
 @app.route('/')
 def live_preview_home():
@@ -343,14 +344,14 @@ def live_preview_home():
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>MealSync • Google Apps Script Live Stream</title>
+        <title>MealSync • Live Screen Preview</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 space-y-4">
         <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-3xl p-5 shadow-2xl text-center space-y-4">
             <div>
-                <h1 class="text-xl font-extrabold text-white">🍳 MealSync Live Screen</h1>
-                <p class="text-xs text-slate-400 mt-1">Live stream synced with Google Apps Script</p>
+                <h1 class="text-xl font-extrabold text-white">🍳 MealSync Live Screen Preview</h1>
+                <p class="text-xs text-slate-400 mt-1">Direct Google Apps Script Feed (400×300 Monochrome)</p>
             </div>
             
             <div class="bg-slate-950 p-2 rounded-2xl border border-slate-700 overflow-hidden">
