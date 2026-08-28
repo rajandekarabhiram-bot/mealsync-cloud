@@ -13,9 +13,13 @@ app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 DB_FILE = "mealsync.db"
 
+# ⚡ Global Sync Version Flag (Forces immediate hardware re-fetch upon every app save)
+SYNC_VERSION = 1
+
+# Securely read Gemini API Key strictly from environment variable
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Fixed 400x300 Layout Dimensions (2x Supersampling)
+# Fixed 400x300 Layout Dimensions for N1B4V02 (2x Supersampling)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -28,7 +32,7 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 1. DATABASE SETUP (Persisting Cuisine, Language, and Menus)
+# 1. DATABASE SETUP (Persisting Settings, Cuisine, and Weekly Menus)
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -67,7 +71,6 @@ def init_db():
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
-        # Set default settings
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_cuisine', 'Maharashtrian')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_diet', 'VEG')")
         conn.commit()
@@ -95,7 +98,7 @@ def ensure_fonts():
 ensure_fonts()
 
 # ============================================================================
-# 3. HELPER FUNCTIONS & CONTENT HASH
+# 3. SETTINGS, SCHEDULE & CONTENT HASH (9:00 PM IST Rollover)
 # ============================================================================
 def get_setting(key, default_val=""):
     with get_db() as conn:
@@ -140,10 +143,12 @@ def get_target_menu_data():
 
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
+    global SYNC_VERSION
     date_str, data = get_target_menu_data()
-    payload = f"{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
+    # Including SYNC_VERSION guarantees the hash changes immediately when the user taps save
+    payload = f"{SYNC_VERSION}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
-    return jsonify({"hash": content_hash}), 200
+    return jsonify({"hash": content_hash, "sync_version": SYNC_VERSION}), 200
 
 # ============================================================================
 # 4. REST APIS & AI PRO ENGINE
@@ -157,11 +162,13 @@ def api_get_menu():
         return jsonify({
             "menu": [dict(ix) for ix in rows],
             "active_cuisine": cuisine,
-            "active_diet": diet
+            "active_diet": diet,
+            "sync_version": SYNC_VERSION
         }), 200
 
 @app.route('/api/menu', methods=['POST'])
 def api_update_day_menu():
+    global SYNC_VERSION
     req = request.get_json(force=True)
     day = req.get("day_name")
     cuisine = req.get("cuisine")
@@ -184,7 +191,10 @@ def api_update_day_menu():
             day
         ))
         conn.commit()
-    return jsonify({"status": "updated"}), 200
+
+    # ⚡ Increment sync version on each edit so the ESP32 receives an updated hash instantly
+    SYNC_VERSION += 1
+    return jsonify({"status": "updated", "sync_version": SYNC_VERSION}), 200
 
 @app.route('/api/ai-suggest', methods=['POST'])
 def api_ai_suggest():
@@ -195,18 +205,21 @@ def api_ai_suggest():
     user_prompt = req.get("prompt", f"Healthy authentic {diet} {cuisine} menu with advance prep.")
     api_key = req.get("gemini_key") or GEMINI_API_KEY
 
+    if not api_key:
+        return jsonify({"error": "No Gemini API key provided. Set GEMINI_API_KEY on Render or enter key in Settings."}), 400
+
     system_instruction = f"""
     You are the MealSync AI Sous-Chef.
     Generate a culinary plan matching Cuisine: {cuisine} and Diet: {diet}.
     Rules:
-    1. Diet Constraint: If VEG, strictly pure vegetarian. If NON_VEG, include authentic meat/fish.
-    2. Format: Use comma separators (", ") between meal items. Concise (<35 chars per line).
-    3. Script: If cuisine is Maharashtrian/North Indian/Gujarati/Rajasthani/South Indian, use natural Devanagari script. If Continental/American, use English.
+    1. Diet Constraint: If VEG, strictly pure vegetarian (no meat, eggs, fish). If NON_VEG, include authentic meat/fish.
+    2. Format: Use comma separators (", ") between items. Keep concise (<35 chars per line).
+    3. Script: For Indian regional cuisines, use natural Devanagari script. For international/Continental, use English.
     4. task1: Today's immediate grocery/cooking prep task.
-    5. task2: Overnight/advance prep for tomorrow.
+    5. task2: Overnight/advance prep for tomorrow (soaking, fermenting, marinating).
     """
 
-    prompt_text = f"Day: {target_day}\nCuisine: {cuisine}\nDiet: {diet}\nNotes: {user_prompt}\nReturn strict JSON with keys: breakfast, lunch, dinner, task1, task2."
+    prompt_text = f"Day: {target_day}\nCuisine: {cuisine}\nDiet: {diet}\nNotes: {user_prompt}\nReturn strict JSON schema with keys: breakfast, lunch, dinner, task1, task2."
 
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}"
@@ -292,7 +305,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 5. FIXED E-PAPER BITMAP RENDERER (Matching App Language & Layout)
+# 5. FIXED E-PAPER BITMAP RENDERER (400x300 Otsu 1-Bit Stream for N1B4V02)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -385,12 +398,12 @@ def render_display():
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
         font_section = safe_font(FONT_ENGLISH_PATH, 15)
 
-        # 1. Header Bar (Preserved Fixed Layout)
+        # 1. Header Bar
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi Signal Bars
+        # Signal bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
@@ -417,7 +430,6 @@ def render_display():
         # 2. Sidebar Labels (Fixed Geometry)
         sidebar_w = 118 * SCALE
         draw.rectangle([0, 38 * SCALE, sidebar_w, CANVAS_H - 1], fill=0)
-        
         draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_section, fill=255)
         draw.text((10 * SCALE, 112 * SCALE), "LUNCH", font=font_section, fill=255)
         draw.text((10 * SCALE, 175 * SCALE), "DINNER", font=font_section, fill=255)
@@ -427,7 +439,7 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # 3. Dynamic Meals & Prep Tasks (Auto-switches to Devanagari font when Marathi is saved)
+        # 3. Dynamic Meals & Prep Tasks
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
@@ -439,7 +451,7 @@ def render_display():
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Downscaling & 1-bit dithering
+        # Safe downscaling across Pillow versions
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
