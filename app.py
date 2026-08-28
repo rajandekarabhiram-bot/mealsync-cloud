@@ -13,13 +13,13 @@ app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 DB_FILE = "mealsync.db"
 
-# Global Sync Version Flag
+# Global Sync Version Flag (Forces hardware re-fetch on every save)
 SYNC_VERSION = 1
 
-# Read Gemini API Key from environment
+# Read Gemini API Key securely from environment variable
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# 400x300 Layout Dimensions for N1B4V02 (2x Supersampling)
+# Fixed 400x300 Layout Dimensions for N1B4V02 (2x Supersampling)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -32,7 +32,18 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 1. DATABASE & INITIAL SEEDING
+# 1. CORS HEADERS (Enables requests from https://mealsync-hub.ai.studio/)
+# ============================================================================
+@app.after_request
+def add_cors_and_cache_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, HEAD"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+# ============================================================================
+# 2. DATABASE SETUP & INITIALIZATION
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -79,7 +90,7 @@ def init_db():
 init_db()
 
 # ============================================================================
-# 2. FONT DOWNLOADER
+# 3. FONT MANAGEMENT
 # ============================================================================
 def ensure_fonts():
     font_urls = {
@@ -99,7 +110,7 @@ def ensure_fonts():
 ensure_fonts()
 
 # ============================================================================
-# 3. SETTINGS & SYNC HASH ENGINE
+# 4. SETTINGS & SYNC HASH ENGINE
 # ============================================================================
 def get_setting(key, default_val=""):
     with get_db() as conn:
@@ -154,31 +165,31 @@ def get_content_hash():
     date_str, data = get_target_menu_data()
     payload = f"{SYNC_VERSION}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
-    
-    resp = jsonify({"hash": content_hash, "sync_version": SYNC_VERSION, "day": data['day']})
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp, 200
+    return jsonify({"hash": content_hash, "sync_version": SYNC_VERSION, "day": data['day']}), 200
 
 # ============================================================================
-# 4. REST APIS & AI PRO ENGINE
+# 5. REST APIS & AI PRO ENGINE
 # ============================================================================
-@app.route('/api/menu', methods=['GET'])
+@app.route('/api/menu', methods=['GET', 'OPTIONS'])
 def api_get_menu():
+    if request.method == 'OPTIONS':
+        return Response(status=200)
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM weekly_menu").fetchall()
         cuisine = get_setting("active_cuisine", "Maharashtrian")
         diet = get_setting("active_diet", "VEG")
-        resp = jsonify({
+        return jsonify({
             "menu": [dict(ix) for ix in rows],
             "active_cuisine": cuisine,
             "active_diet": diet,
             "sync_version": SYNC_VERSION
-        })
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp, 200
+        }), 200
 
-@app.route('/api/menu', methods=['POST'])
+@app.route('/api/menu', methods=['POST', 'OPTIONS'])
 def api_update_day_menu():
+    if request.method == 'OPTIONS':
+        return Response(status=200)
+
     global SYNC_VERSION
     req = request.get_json(force=True)
     day = req.get("day_name")
@@ -187,8 +198,7 @@ def api_update_day_menu():
 
     if cuisine: set_setting("active_cuisine", cuisine)
     if diet: set_setting("active_diet", diet)
-    
-    set_setting("forced_display_day", day)
+    if day: set_setting("forced_display_day", day)
 
     with get_db() as conn:
         conn.execute("""
@@ -211,12 +221,13 @@ def api_update_day_menu():
         conn.commit()
 
     SYNC_VERSION += 1
-    resp = jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day})
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    return resp, 200
+    return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
-@app.route('/api/ai-suggest', methods=['POST'])
+@app.route('/api/ai-suggest', methods=['POST', 'OPTIONS'])
 def api_ai_suggest():
+    if request.method == 'OPTIONS':
+        return Response(status=200)
+
     req = request.get_json(force=True)
     target_day = req.get("day_name", "Monday")
     cuisine = req.get("cuisine", "Maharashtrian")
@@ -260,8 +271,10 @@ def api_ai_suggest():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/log', methods=['POST'])
+@app.route('/log', methods=['POST', 'OPTIONS'])
 def receive_device_log():
+    if request.method == 'OPTIONS':
+        return Response(status=200)
     try:
         log_entry = request.get_json(force=True)
         now_str = datetime.now(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
@@ -322,7 +335,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 5. FIXED E-PAPER BITMAP RENDERER (N1B4V02)
+# 6. E-PAPER BITMAP RENDERER (N1B4V02 / SSD1683)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -420,7 +433,7 @@ def render_display():
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi
+        # Wi-Fi Bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
@@ -456,7 +469,7 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Meals & Tasks
+        # Dynamic Meal Texts
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
@@ -468,30 +481,26 @@ def render_display():
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Resample
+        # Downscaling & 1-bit dithering
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
-            resp = Response(img_epd.tobytes(), mimetype='application/octet-stream')
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            return resp
+            return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
-        resp = send_file(buf, mimetype='image/bmp')
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
+        return send_file(buf, mimetype='image/bmp')
 
     except Exception as err:
         traceback.print_exc()
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 6. COMPANION PROGRESSIVE WEB APP (ROOT ROUTE)
+# 7. EMBEDDED DASHBOARD & PREVIEW
 # ============================================================================
 @app.route('/')
 def app_home():
@@ -507,63 +516,7 @@ def app_home():
     </head>
     <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col items-center justify-between">
 
-      <section id="screen-login" class="w-full max-w-md px-6 py-12 flex flex-col justify-center min-h-screen space-y-8">
-        <div class="text-center space-y-3">
-          <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-white shadow-xl text-4xl mb-2">🍳</div>
-          <h1 class="text-3xl font-extrabold text-slate-900">MealSync Hub</h1>
-          <p class="text-sm text-slate-500">Smart multilingual kitchen companion for your E-Paper display.</p>
-        </div>
-
-        <div class="bg-white border border-slate-200 rounded-3xl p-6 shadow-xl space-y-4">
-          <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Your Name</label>
-            <input id="login-name" type="text" placeholder="e.g. Abhiram" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-teal-500" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Dietary Preference</label>
-            <div class="grid grid-cols-3 gap-2">
-              <button onclick="setDiet('VEG')" id="diet-btn-veg" class="py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-500 text-emerald-700">🟢 Pure Veg</button>
-              <button onclick="setDiet('NON_VEG')" id="diet-btn-nonveg" class="py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600">🔴 Non-Veg</button>
-              <button onclick="setDiet('BOTH')" id="diet-btn-both" class="py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600">🟡 Both</button>
-            </div>
-          </div>
-          <button onclick="handleLoginSubmit()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm py-4 rounded-xl shadow-lg transition-all">
-            Choose Cuisine ➔
-          </button>
-        </div>
-      </section>
-
-      <section id="screen-cuisine" class="w-full max-w-md px-5 py-8 hidden space-y-6">
-        <div class="space-y-1">
-          <span class="text-xs font-bold text-teal-600 uppercase tracking-wider">Step 2 of 2</span>
-          <h2 class="text-2xl font-extrabold text-slate-900">Select Cuisine & Language</h2>
-          <p class="text-xs text-slate-500">Language and recipe suggestions will adapt automatically.</p>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <button onclick="selectCuisineTheme('Maharashtrian')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
-            <span class="text-xl block mb-1">🌾</span>
-            <div class="font-bold text-sm">Maharashtrian</div>
-            <div class="text-[11px] text-teal-600 font-bold">पारंपारिक मराठी</div>
-          </button>
-          <button onclick="selectCuisineTheme('South Indian')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
-            <span class="text-xl block mb-1">🥥</span>
-            <div class="font-bold text-sm">South Indian</div>
-            <div class="text-[11px] text-teal-600 font-bold">इडली, डोसा, सांबार</div>
-          </button>
-          <button onclick="selectCuisineTheme('Gujarati')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
-            <span class="text-xl block mb-1">🥘</span>
-            <div class="font-bold text-sm">Gujarati</div>
-            <div class="text-[11px] text-teal-600 font-bold">थेपला, कढी</div>
-          </button>
-          <button onclick="selectCuisineTheme('Continental / European')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
-            <span class="text-xl block mb-1">🥗</span>
-            <div class="font-bold text-sm">Continental</div>
-            <div class="text-[11px] text-slate-500">Salads & Pasta</div>
-          </button>
-        </div>
-      </section>
-
-      <section id="screen-planner" class="w-full max-w-md px-4 py-4 hidden space-y-4">
+      <section id="screen-planner" class="w-full max-w-md px-4 py-4 space-y-4">
         <div class="flex items-center justify-between pb-1 border-b border-slate-200">
           <div class="flex items-center gap-2">
             <span class="text-2xl">🍳</span>
@@ -664,60 +617,9 @@ def app_home():
         let weeklyMenuCache = {};
 
         window.addEventListener('DOMContentLoaded', async () => {
-          const storedUser = localStorage.getItem('MEALSYNC_USER');
-          const storedCuisine = localStorage.getItem('MEALSYNC_CUISINE');
-          const storedDiet = localStorage.getItem('MEALSYNC_DIET_PREF');
-
-          if (storedDiet) activeDiet = storedDiet;
-          if (storedCuisine) activeCuisine = storedCuisine;
-
-          if (storedUser) {
-            showScreen('planner');
-            initTodayTab();
-            await loadWeeklySchedule();
-          } else {
-            showScreen('login');
-          }
-        });
-
-        function setDiet(diet) {
-          activeDiet = diet;
-          ['veg', 'nonveg', 'both'].forEach(d => {
-            document.getElementById(`diet-btn-${d}`).className = "py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600";
-          });
-          const btn = document.getElementById(`diet-btn-${diet.toLowerCase().replace('_','')}`);
-          if (btn) btn.className = "py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-500 text-emerald-700";
-        }
-
-        function showScreen(screen) {
-          document.getElementById('screen-login').classList.add('hidden');
-          document.getElementById('screen-cuisine').classList.add('hidden');
-          document.getElementById('screen-planner').classList.add('hidden');
-
-          if (screen === 'login') document.getElementById('screen-login').classList.remove('hidden');
-          if (screen === 'cuisine') document.getElementById('screen-cuisine').classList.remove('hidden');
-          if (screen === 'planner') {
-            document.getElementById('screen-planner').classList.remove('hidden');
-            document.getElementById('active-cuisine-badge').innerText = activeCuisine;
-            document.getElementById('active-diet-badge').innerText = activeDiet === 'VEG' ? '🟢 Veg' : (activeDiet === 'NON_VEG' ? '🔴 Non-Veg' : '🟡 Both');
-          }
-        }
-
-        function handleLoginSubmit() {
-          const name = document.getElementById('login-name').value.trim();
-          if (!name) return showToast("Please enter your name.");
-          localStorage.setItem('MEALSYNC_USER', JSON.stringify({ name }));
-          localStorage.setItem('MEALSYNC_DIET_PREF', activeDiet);
-          showScreen('cuisine');
-        }
-
-        async function selectCuisineTheme(cuisine) {
-          activeCuisine = cuisine;
-          localStorage.setItem('MEALSYNC_CUISINE', cuisine);
-          showScreen('planner');
           initTodayTab();
           await loadWeeklySchedule();
-        }
+        });
 
         function initTodayTab() {
           const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
