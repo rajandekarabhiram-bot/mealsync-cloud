@@ -13,13 +13,13 @@ app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 DB_FILE = "mealsync.db"
 
-# ⚡ Global Sync Version Flag (Forces immediate hardware re-fetch upon every app save)
+# ⚡ Monotonic Sync Version Flag
 SYNC_VERSION = 1
 
-# Securely read Gemini API Key strictly from environment variable
+# Read Gemini API Key from environment
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# Fixed 400x300 Layout Dimensions for N1B4V02 (2x Supersampling)
+# 400x300 Layout Dimensions for N1B4V02 (2x Supersampling)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -32,10 +32,10 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 1. DATABASE SETUP (Persisting Settings, Cuisine, and Weekly Menus)
+# 1. DATABASE & INITIAL SEEDING
 # ============================================================================
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -78,7 +78,7 @@ def init_db():
 init_db()
 
 # ============================================================================
-# 2. AUTO FONT DOWNLOADER
+# 2. FONT DOWNLOADER
 # ============================================================================
 def ensure_fonts():
     font_urls = {
@@ -98,7 +98,7 @@ def ensure_fonts():
 ensure_fonts()
 
 # ============================================================================
-# 3. SETTINGS, SCHEDULE & CONTENT HASH (9:00 PM IST Rollover)
+# 3. SETTINGS & SYNC HASH ENGINE
 # ============================================================================
 def get_setting(key, default_val=""):
     with get_db() as conn:
@@ -145,10 +145,12 @@ def get_target_menu_data():
 def get_content_hash():
     global SYNC_VERSION
     date_str, data = get_target_menu_data()
-    # Including SYNC_VERSION guarantees the hash changes immediately when the user taps save
     payload = f"{SYNC_VERSION}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
-    return jsonify({"hash": content_hash, "sync_version": SYNC_VERSION}), 200
+    
+    resp = jsonify({"hash": content_hash, "sync_version": SYNC_VERSION, "day": data['day']})
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp, 200
 
 # ============================================================================
 # 4. REST APIS & AI PRO ENGINE
@@ -159,12 +161,14 @@ def api_get_menu():
         rows = conn.execute("SELECT * FROM weekly_menu").fetchall()
         cuisine = get_setting("active_cuisine", "Maharashtrian")
         diet = get_setting("active_diet", "VEG")
-        return jsonify({
+        resp = jsonify({
             "menu": [dict(ix) for ix in rows],
             "active_cuisine": cuisine,
             "active_diet": diet,
             "sync_version": SYNC_VERSION
-        }), 200
+        })
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp, 200
 
 @app.route('/api/menu', methods=['POST'])
 def api_update_day_menu():
@@ -179,22 +183,30 @@ def api_update_day_menu():
 
     with get_db() as conn:
         conn.execute("""
-            UPDATE weekly_menu
-            SET breakfast = ?, lunch = ?, dinner = ?, task1 = ?, task2 = ?
-            WHERE day_name = ?
+            INSERT INTO weekly_menu (day_name, breakfast, lunch, dinner, task1, task2)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(day_name) DO UPDATE SET
+                breakfast = excluded.breakfast,
+                lunch = excluded.lunch,
+                dinner = excluded.dinner,
+                task1 = excluded.task1,
+                task2 = excluded.task2
         """, (
+            day,
             str(req.get("breakfast", "")).replace("+", ","),
             str(req.get("lunch", "")).replace("+", ","),
             str(req.get("dinner", "")).replace("+", ","),
             str(req.get("task1", "")).replace("+", ","),
-            str(req.get("task2", "")).replace("+", ","),
-            day
+            str(req.get("task2", "")).replace("+", ",")
         ))
         conn.commit()
 
-    # ⚡ Increment sync version on each edit so the ESP32 receives an updated hash instantly
     SYNC_VERSION += 1
-    return jsonify({"status": "updated", "sync_version": SYNC_VERSION}), 200
+    print(f"[SYNC TRIGGERED] Day: {day} updated. SYNC_VERSION incremented to {SYNC_VERSION}")
+    
+    resp = jsonify({"status": "updated", "sync_version": SYNC_VERSION})
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp, 200
 
 @app.route('/api/ai-suggest', methods=['POST'])
 def api_ai_suggest():
@@ -206,7 +218,7 @@ def api_ai_suggest():
     api_key = req.get("gemini_key") or GEMINI_API_KEY
 
     if not api_key:
-        return jsonify({"error": "No Gemini API key provided. Set GEMINI_API_KEY on Render or enter key in Settings."}), 400
+        return jsonify({"error": "No Gemini API key provided."}), 400
 
     system_instruction = f"""
     You are the MealSync AI Sous-Chef.
@@ -261,7 +273,7 @@ def view_logs():
     <html>
     <head>
         <title>MealSync Telemetry Logs</title>
-        <meta http-equiv="refresh" content="15">
+        <meta http-equiv="refresh" content="10">
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
             table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; margin-top: 16px; }
@@ -272,7 +284,7 @@ def view_logs():
         </style>
     </head>
     <body>
-        <h2>📊 MealSync Hardware Telemetry Logs</h2>
+        <h2>📊 MealSync Live Telemetry Logs</h2>
         <table>
             <thead>
                 <tr>
@@ -282,7 +294,6 @@ def view_logs():
                     <th>Voltage</th>
                     <th>Wi-Fi Strength</th>
                     <th>Hash</th>
-                    <th>Next Sleep</th>
                 </tr>
             </thead>
             <tbody>
@@ -294,7 +305,6 @@ def view_logs():
                     <td>{{ log.v }} V</td>
                     <td><span class="wifi-tag">{{ log.wifi_strength }}</span></td>
                     <td><code>{{ log.hash }}</code></td>
-                    <td>{{ log.sleep_sec }}s</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -305,7 +315,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 5. FIXED E-PAPER BITMAP RENDERER (400x300 Otsu 1-Bit Stream for N1B4V02)
+# 5. FIXED E-PAPER BITMAP RENDERER (N1B4V02)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -403,7 +413,7 @@ def render_display():
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Signal bars
+        # Wi-Fi
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
@@ -427,7 +437,7 @@ def render_display():
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 10, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # 2. Sidebar Labels (Fixed Geometry)
+        # 2. Sidebar Labels
         sidebar_w = 118 * SCALE
         draw.rectangle([0, 38 * SCALE, sidebar_w, CANVAS_H - 1], fill=0)
         draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_section, fill=255)
@@ -451,19 +461,23 @@ def render_display():
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Safe downscaling across Pillow versions
+        # Resample
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
-            return Response(img_epd.tobytes(), mimetype='application/octet-stream')
+            resp = Response(img_epd.tobytes(), mimetype='application/octet-stream')
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
 
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
-        return send_file(buf, mimetype='image/bmp')
+        resp = send_file(buf, mimetype='image/bmp')
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
 
     except Exception as err:
         traceback.print_exc()
@@ -718,7 +732,7 @@ def app_home():
 
         async function loadWeeklySchedule() {
           try {
-            const res = await fetch('/api/menu');
+            const res = await fetch('/api/menu?t=' + new Date().getTime());
             if (res.ok) {
               const data = await res.json();
               if (data.active_cuisine) activeCuisine = data.active_cuisine;
