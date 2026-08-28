@@ -13,10 +13,9 @@ app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 DB_FILE = "mealsync.db"
 
-# Central Gemini API Key from Render Environment (Optional if user enters BYOK)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# E-Paper Canvas Dimensions for N1B4V02 (400x300 with 2x supersampling)
+# Fixed 400x300 Layout Dimensions (2x Supersampling)
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 SCALE = 2
@@ -29,7 +28,7 @@ FONT_MARATHI_PATH = "Yantramanav-Bold.ttf"
 DEVICE_LOGS = []
 
 # ============================================================================
-# 1. DATABASE INITIALIZATION & PRE-SEEDED ROTATIONS
+# 1. DATABASE SETUP (Persisting Cuisine, Language, and Menus)
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -38,6 +37,12 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS weekly_menu (
                 day_name TEXT PRIMARY KEY,
@@ -61,6 +66,10 @@ def init_db():
                 ("Sunday", "डोसा, सांबार, चटणी", "पुरणपोळी, कटाची आमटी, भजी", "दही भात, लोणचे", "सांबार मसाला", "उद्यासाठी पोहे चाळणे")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
+        
+        # Set default settings
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_cuisine', 'Maharashtrian')")
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_diet', 'VEG')")
         conn.commit()
 
 init_db()
@@ -86,8 +95,18 @@ def ensure_fonts():
 ensure_fonts()
 
 # ============================================================================
-# 3. SCHEDULE & CONTENT HASH (9:00 PM IST Rollover)
+# 3. HELPER FUNCTIONS & CONTENT HASH
 # ============================================================================
+def get_setting(key, default_val=""):
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default_val
+
+def set_setting(key, value):
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+
 def get_target_menu_data():
     now_ist = datetime.now(IST)
     if now_ist.hour >= 21:
@@ -97,12 +116,14 @@ def get_target_menu_data():
 
     target_day = target_date.strftime("%A")
     date_str = target_date.strftime("%a, %d %b %Y").upper()
+    cuisine = get_setting("active_cuisine", "Maharashtrian")
 
     with get_db() as conn:
         row = conn.execute("SELECT * FROM weekly_menu WHERE day_name = ?", (target_day,)).fetchone()
         if row:
             data = {
                 "day": row["day_name"],
+                "cuisine": cuisine,
                 "breakfast": (row["breakfast"] or "—").replace("+", ","),
                 "lunch": (row["lunch"] or "—").replace("+", ","),
                 "dinner": (row["dinner"] or "—").replace("+", ","),
@@ -111,7 +132,7 @@ def get_target_menu_data():
             }
         else:
             data = {
-                "day": target_day,
+                "day": target_day, "cuisine": cuisine,
                 "breakfast": "—", "lunch": "—", "dinner": "—", "task1": "—", "task2": "—"
             }
 
@@ -120,23 +141,35 @@ def get_target_menu_data():
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
     date_str, data = get_target_menu_data()
-    payload = f"{date_str}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
+    payload = f"{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
     return jsonify({"hash": content_hash}), 200
 
 # ============================================================================
-# 4. REST APIS & AI PRO GENERATOR
+# 4. REST APIS & AI PRO ENGINE
 # ============================================================================
 @app.route('/api/menu', methods=['GET'])
 def api_get_menu():
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM weekly_menu").fetchall()
-        return jsonify([dict(ix) for ix in rows]), 200
+        cuisine = get_setting("active_cuisine", "Maharashtrian")
+        diet = get_setting("active_diet", "VEG")
+        return jsonify({
+            "menu": [dict(ix) for ix in rows],
+            "active_cuisine": cuisine,
+            "active_diet": diet
+        }), 200
 
 @app.route('/api/menu', methods=['POST'])
 def api_update_day_menu():
     req = request.get_json(force=True)
     day = req.get("day_name")
+    cuisine = req.get("cuisine")
+    diet = req.get("diet")
+
+    if cuisine: set_setting("active_cuisine", cuisine)
+    if diet: set_setting("active_diet", diet)
+
     with get_db() as conn:
         conn.execute("""
             UPDATE weekly_menu
@@ -162,21 +195,18 @@ def api_ai_suggest():
     user_prompt = req.get("prompt", f"Healthy authentic {diet} {cuisine} menu with advance prep.")
     api_key = req.get("gemini_key") or GEMINI_API_KEY
 
-    if not api_key:
-        return jsonify({"error": "No Gemini API key configured. Provide in Settings."}), 400
-
     system_instruction = f"""
     You are the MealSync AI Sous-Chef.
     Generate a culinary plan matching Cuisine: {cuisine} and Diet: {diet}.
-    Directives:
-    1. Diet Constraint: If VEG, strictly pure vegetarian (no meat, fish, eggs). If NON_VEG, include authentic poultry/meat/seafood dishes.
-    2. Format: Use comma separators (", ") between meal items instead of "+". Keep concise (<35 chars).
-    3. Script: For Indian regional cuisines, use natural Devanagari script. For international/Continental, use clear English.
+    Rules:
+    1. Diet Constraint: If VEG, strictly pure vegetarian. If NON_VEG, include authentic meat/fish.
+    2. Format: Use comma separators (", ") between meal items. Concise (<35 chars per line).
+    3. Script: If cuisine is Maharashtrian/North Indian/Gujarati/Rajasthani/South Indian, use natural Devanagari script. If Continental/American, use English.
     4. task1: Today's immediate grocery/cooking prep task.
-    5. task2: Overnight/advance prep for tomorrow (soaking, fermenting, marinating).
+    5. task2: Overnight/advance prep for tomorrow.
     """
 
-    prompt_text = f"Day: {target_day}\nCuisine: {cuisine}\nDiet: {diet}\nNotes: {user_prompt}\nReturn strict JSON schema."
+    prompt_text = f"Day: {target_day}\nCuisine: {cuisine}\nDiet: {diet}\nNotes: {user_prompt}\nReturn strict JSON with keys: breakfast, lunch, dinner, task1, task2."
 
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}"
@@ -198,9 +228,6 @@ def api_ai_suggest():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ============================================================================
-# 5. TELEMETRY LOGGING
-# ============================================================================
 @app.route('/log', methods=['POST'])
 def receive_device_log():
     try:
@@ -221,7 +248,7 @@ def view_logs():
     <html>
     <head>
         <title>MealSync Telemetry Logs</title>
-        <meta http-equiv="refresh" content="20">
+        <meta http-equiv="refresh" content="15">
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
             table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; margin-top: 16px; }
@@ -232,7 +259,7 @@ def view_logs():
         </style>
     </head>
     <body>
-        <h2>📊 MealSync Hardware Telemetry Logs (N1B4V02 / ESP32-C3)</h2>
+        <h2>📊 MealSync Hardware Telemetry Logs</h2>
         <table>
             <thead>
                 <tr>
@@ -242,7 +269,7 @@ def view_logs():
                     <th>Voltage</th>
                     <th>Wi-Fi Strength</th>
                     <th>Hash</th>
-                    <th>Next Sleep Slot</th>
+                    <th>Next Sleep</th>
                 </tr>
             </thead>
             <tbody>
@@ -265,7 +292,7 @@ def view_logs():
     return render_template_string(html_template, logs=DEVICE_LOGS)
 
 # ============================================================================
-# 6. E-PAPER BITMAP RENDERER (N1B4V02 400x300 Otsu 1-Bit Stream)
+# 5. FIXED E-PAPER BITMAP RENDERER (Matching App Language & Layout)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -358,12 +385,12 @@ def render_display():
         font_badge = safe_font(FONT_ENGLISH_PATH, 13)
         font_section = safe_font(FONT_ENGLISH_PATH, 15)
 
-        # Header Bar
+        # 1. Header Bar (Preserved Fixed Layout)
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi Signal
+        # Wi-Fi Signal Bars
         signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
@@ -387,9 +414,10 @@ def render_display():
         badge_w = get_text_width(font_badge, batt_str)
         draw.text((batX - badge_w - 10, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # Sidebar
+        # 2. Sidebar Labels (Fixed Geometry)
         sidebar_w = 118 * SCALE
         draw.rectangle([0, 38 * SCALE, sidebar_w, CANVAS_H - 1], fill=0)
+        
         draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_section, fill=255)
         draw.text((10 * SCALE, 112 * SCALE), "LUNCH", font=font_section, fill=255)
         draw.text((10 * SCALE, 175 * SCALE), "DINNER", font=font_section, fill=255)
@@ -399,28 +427,27 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Meals & Tasks
+        # 3. Dynamic Meals & Prep Tasks (Auto-switches to Devanagari font when Marathi is saved)
         draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=13, max_lines=2, fill_color=0)
 
+        # Checkboxes
         draw.rectangle([128 * SCALE, 243 * SCALE, 142 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 148, 238, 112, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
         draw.rectangle([264 * SCALE, 243 * SCALE, 278 * SCALE, 257 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 284, 238, 110, 32, max_size=17, min_size=14, max_lines=1, fill_color=0)
 
-        # Cross-version safe Lanczos downsampling
+        # Downscaling & 1-bit dithering
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
 
-        # Inverted raw byte delivery for ESP32 firmware
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Standard BMP for browser preview
         buf = io.BytesIO()
         img_1bit.save(buf, format='BMP')
         buf.seek(0)
@@ -431,7 +458,7 @@ def render_display():
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 7. PROGRESSIVE WEB APP (MULTI-SCREEN COMPANION UI)
+# 6. COMPANION PROGRESSIVE WEB APP
 # ============================================================================
 @app.route('/')
 def app_home():
@@ -442,368 +469,191 @@ def app_home():
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       <title>MealSync Hub • Smart Kitchen Dashboard</title>
-      
-      <link rel="preconnect" href="https://fonts.googleapis.com">
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=Yantramanav:wght@500;700;900&display=swap" rel="stylesheet">
-      
       <script src="https://cdn.tailwindcss.com"></script>
-      <script>
-        tailwind.config = {
-          theme: {
-            extend: {
-              fontFamily: {
-                sans: ['"Plus Jakarta Sans"', 'sans-serif'],
-                english: ['"Outfit"', 'sans-serif'],
-                marathi: ['"Yantramanav"', 'sans-serif'],
-              }
-            }
-          }
-        }
-      </script>
-      <style>
-        .active-pulse {
-          animation: subtle-pulse 2s infinite;
-        }
-        @keyframes subtle-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-          50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-        }
-      </style>
     </head>
     <body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col items-center justify-between">
 
-      <!-- SCREEN 1: LOGIN / ONBOARDING -->
       <section id="screen-login" class="w-full max-w-md px-6 py-12 flex flex-col justify-center min-h-screen space-y-8">
         <div class="text-center space-y-3">
-          <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-white shadow-xl shadow-teal-500/20 text-4xl mb-2">
-            🍳
-          </div>
-          <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">MealSync Hub</h1>
-          <p class="text-sm text-slate-500 font-english leading-relaxed">Smart kitchen planner, AI sous-chef, and companion controller for your E-Paper kitchen board.</p>
+          <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-tr from-teal-500 to-emerald-400 text-white shadow-xl text-4xl mb-2">🍳</div>
+          <h1 class="text-3xl font-extrabold text-slate-900">MealSync Hub</h1>
+          <p class="text-sm text-slate-500">Smart multilingual kitchen companion for your E-Paper display.</p>
         </div>
 
-        <div class="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-xl shadow-slate-200/50 space-y-4">
+        <div class="bg-white border border-slate-200 rounded-3xl p-6 shadow-xl space-y-4">
           <div>
             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Your Name</label>
-            <input id="login-name" type="text" placeholder="e.g. Abhiram" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-teal-500 transition-all" />
+            <input id="login-name" type="text" placeholder="e.g. Abhiram" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-teal-500" />
           </div>
-          
           <div>
             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Dietary Preference</label>
             <div class="grid grid-cols-3 gap-2">
-              <button onclick="setDiet('VEG')" id="diet-btn-veg" class="diet-btn py-2.5 rounded-xl border text-xs font-bold transition-all bg-emerald-50 border-emerald-500 text-emerald-700">🟢 Pure Veg</button>
-              <button onclick="setDiet('NON_VEG')" id="diet-btn-nonveg" class="diet-btn py-2.5 rounded-xl border text-xs font-bold transition-all bg-slate-50 border-slate-200 text-slate-600">🔴 Non-Veg</button>
-              <button onclick="setDiet('BOTH')" id="diet-btn-both" class="diet-btn py-2.5 rounded-xl border text-xs font-bold transition-all bg-slate-50 border-slate-200 text-slate-600">🟡 Both</button>
+              <button onclick="setDiet('VEG')" id="diet-btn-veg" class="py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-500 text-emerald-700">🟢 Pure Veg</button>
+              <button onclick="setDiet('NON_VEG')" id="diet-btn-nonveg" class="py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600">🔴 Non-Veg</button>
+              <button onclick="setDiet('BOTH')" id="diet-btn-both" class="py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600">🟡 Both</button>
             </div>
           </div>
-
-          <button onclick="handleLoginSubmit()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm py-4 rounded-xl shadow-lg shadow-slate-900/10 active:scale-[0.99] transition-all">
+          <button onclick="handleLoginSubmit()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm py-4 rounded-xl shadow-lg transition-all">
             Choose Cuisine ➔
           </button>
         </div>
       </section>
 
-      <!-- SCREEN 2: CUISINE SELECTION -->
       <section id="screen-cuisine" class="w-full max-w-md px-5 py-8 hidden space-y-6">
         <div class="space-y-1">
           <span class="text-xs font-bold text-teal-600 uppercase tracking-wider">Step 2 of 2</span>
-          <h2 class="text-2xl font-extrabold text-slate-900">Choose Kitchen Cuisine</h2>
-          <p class="text-xs text-slate-500 font-english">Select your culinary theme. Language and recipes adjust automatically.</p>
+          <h2 class="text-2xl font-extrabold text-slate-900">Select Cuisine & Language</h2>
+          <p class="text-xs text-slate-500">Language and recipe suggestions will adapt automatically.</p>
         </div>
-
-        <div class="space-y-4">
-          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Indian Regional Cuisines</div>
-          <div class="grid grid-cols-2 gap-3">
-            <button onclick="selectCuisineTheme('Maharashtrian')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🌾</span>
-              <div class="font-bold text-sm text-slate-800">Maharashtrian</div>
-              <div class="text-[11px] text-teal-600 font-marathi">पारंपारिक जेवण</div>
-            </button>
-            <button onclick="selectCuisineTheme('South Indian')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🥥</span>
-              <div class="font-bold text-sm text-slate-800">South Indian</div>
-              <div class="text-[11px] text-teal-600 font-marathi">इडली, डोसा, सांबार</div>
-            </button>
-            <button onclick="selectCuisineTheme('Gujarati')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🥘</span>
-              <div class="font-bold text-sm text-slate-800">Gujarati</div>
-              <div class="text-[11px] text-teal-600 font-marathi">थेपला, गुजराती कढी</div>
-            </button>
-            <button onclick="selectCuisineTheme('Marwadi / Rajasthani')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🍲</span>
-              <div class="font-bold text-sm text-slate-800">Marwadi / Raj</div>
-              <div class="text-[11px] text-teal-600 font-marathi">दाल बाटी, गट्टे भाजी</div>
-            </button>
-            <button onclick="selectCuisineTheme('North Indian / Punjabi')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all col-span-2">
-              <span class="text-xl block mb-1">🫓</span>
-              <div class="font-bold text-sm text-slate-800">North Indian / Punjabi</div>
-              <div class="text-[11px] text-teal-600 font-marathi">पनीर, पराठा, दाल मखनी</div>
-            </button>
-          </div>
-
-          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 pt-2">Global & Continental</div>
-          <div class="grid grid-cols-2 gap-3">
-            <button onclick="selectCuisineTheme('Continental / European')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🥗</span>
-              <div class="font-bold text-sm text-slate-800">Continental</div>
-              <div class="text-[11px] text-slate-500">Pastas, Soups, Salads</div>
-            </button>
-            <button onclick="selectCuisineTheme('USA / American')" class="cuisine-card text-left p-3.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm hover:border-teal-500 active:scale-95 transition-all">
-              <span class="text-xl block mb-1">🥞</span>
-              <div class="font-bold text-sm text-slate-800">American</div>
-              <div class="text-[11px] text-slate-500">Oats, Bowls, Wraps</div>
-            </button>
-          </div>
+        <div class="grid grid-cols-2 gap-3">
+          <button onclick="selectCuisineTheme('Maharashtrian')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
+            <span class="text-xl block mb-1">🌾</span>
+            <div class="font-bold text-sm">Maharashtrian</div>
+            <div class="text-[11px] text-teal-600 font-bold">पारंपारिक मराठी</div>
+          </button>
+          <button onclick="selectCuisineTheme('South Indian')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
+            <span class="text-xl block mb-1">🥥</span>
+            <div class="font-bold text-sm">South Indian</div>
+            <div class="text-[11px] text-teal-600 font-bold">इडली, डोसा, सांबार</div>
+          </button>
+          <button onclick="selectCuisineTheme('Gujarati')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
+            <span class="text-xl block mb-1">🥘</span>
+            <div class="font-bold text-sm">Gujarati</div>
+            <div class="text-[11px] text-teal-600 font-bold">थेपला, कढी</div>
+          </button>
+          <button onclick="selectCuisineTheme('Continental / European')" class="p-3.5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-teal-500 text-left">
+            <span class="text-xl block mb-1">🥗</span>
+            <div class="font-bold text-sm">Continental</div>
+            <div class="text-[11px] text-slate-500">Salads & Pasta</div>
+          </button>
         </div>
       </section>
 
-      <!-- SCREEN 3: MAIN MEAL PLANNER & DASHBOARD -->
       <section id="screen-planner" class="w-full max-w-md px-4 py-4 hidden space-y-4">
-        <div class="flex items-center justify-between pb-1 border-b border-slate-200/60">
+        <div class="flex items-center justify-between pb-1 border-b border-slate-200">
           <div class="flex items-center gap-2">
             <span class="text-2xl">🍳</span>
             <div>
-              <h2 class="font-extrabold text-base tracking-tight text-slate-900 leading-tight">MealSync Hub</h2>
+              <h2 class="font-extrabold text-base text-slate-900">MealSync Hub</h2>
               <div class="flex items-center gap-1.5 mt-0.5">
-                <span id="active-cuisine-badge" class="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-full">Maharashtrian</span>
-                <span id="active-diet-badge" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full">🟢 Veg</span>
+                <span id="active-cuisine-badge" class="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">Maharashtrian</span>
+                <span id="active-diet-badge" class="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">🟢 Veg</span>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button onclick="togglePreviewModal()" class="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg shadow-sm transition-all">
-              <span>📱 Preview</span>
-            </button>
-            <button onclick="toggleSettingsModal()" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 font-bold transition-all">
-              ⚙️
+            <button onclick="togglePreviewModal()" class="bg-slate-900 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">
+              📱 Preview
             </button>
           </div>
         </div>
 
-        <!-- 7-Day Day Selector Bar -->
-        <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none" id="day-bar">
-          <button onclick="selectDay('Monday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Mon</button>
-          <button onclick="selectDay('Tuesday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Tue</button>
-          <button onclick="selectDay('Wednesday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Wed</button>
-          <button onclick="selectDay('Thursday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Thu</button>
-          <button onclick="selectDay('Friday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Fri</button>
-          <button onclick="selectDay('Saturday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Sat</button>
-          <button onclick="selectDay('Sunday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600">Sun</button>
+        <div class="flex gap-1.5 overflow-x-auto pb-1" id="day-bar">
+          <button onclick="selectDay('Monday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Mon</button>
+          <button onclick="selectDay('Tuesday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Tue</button>
+          <button onclick="selectDay('Wednesday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Wed</button>
+          <button onclick="selectDay('Thursday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Thu</button>
+          <button onclick="selectDay('Friday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Fri</button>
+          <button onclick="selectDay('Saturday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Sat</button>
+          <button onclick="selectDay('Sunday')" class="day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200">Sun</button>
         </div>
 
-        <!-- AI Pro Mode Generator Box -->
-        <div class="bg-gradient-to-br from-teal-500/10 via-emerald-500/10 to-indigo-500/10 border border-teal-500/20 rounded-2xl p-3 shadow-sm space-y-2">
+        <div class="bg-gradient-to-br from-teal-50 to-indigo-50 border border-teal-200 rounded-2xl p-3 space-y-2">
           <div class="flex items-center justify-between">
-            <span class="text-[11px] font-extrabold text-teal-900 uppercase tracking-wider">✨ AI Sous-Chef</span>
+            <span class="text-[11px] font-extrabold text-teal-900">✨ AI Sous-Chef</span>
             <span id="active-day-label" class="text-[11px] font-bold text-slate-500">Planning: Monday</span>
           </div>
           <div class="flex gap-2">
-            <input id="ai-theme-input" type="text" placeholder="Custom note (e.g. fasting, high protein)..." class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 outline-none text-slate-800" />
-            <button onclick="generatePlanForDay()" id="ai-gen-btn" class="bg-teal-600 hover:bg-teal-700 active:scale-95 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all whitespace-nowrap shadow-sm shadow-teal-600/30">
-              Generate
-            </button>
+            <input id="ai-theme-input" type="text" placeholder="Custom note (e.g. high protein)..." class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none" />
+            <button onclick="generatePlanForDay()" id="ai-gen-btn" class="bg-teal-600 text-white font-bold text-xs px-3 py-2 rounded-xl">Generate</button>
           </div>
         </div>
 
-        <!-- Meal Cards with Real-Time Highlighting -->
         <div class="space-y-2.5">
-          <div id="card-breakfast" class="meal-card bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-sm focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/20 transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Breakfast</span>
-              </div>
-              <span id="badge-breakfast" class="hidden text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Active Now</span>
-            </div>
-            <input id="input-breakfast" type="text" class="w-full text-base font-bold text-slate-800 outline-none placeholder-slate-300" placeholder="e.g. पोहे, चहा" />
+          <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm">
+            <span class="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Breakfast</span>
+            <input id="input-breakfast" type="text" class="w-full text-base font-bold text-slate-800 outline-none" />
+          </div>
+          <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm">
+            <span class="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Lunch</span>
+            <input id="input-lunch" type="text" class="w-full text-base font-bold text-slate-800 outline-none" />
+          </div>
+          <div class="bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm">
+            <span class="text-[10px] font-extrabold uppercase text-slate-400 block mb-1">Dinner</span>
+            <input id="input-dinner" type="text" class="w-full text-base font-bold text-slate-800 outline-none" />
           </div>
 
-          <div id="card-lunch" class="meal-card bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Lunch</span>
-              </div>
-              <span id="badge-lunch" class="hidden text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">Active Now</span>
+          <div class="grid grid-cols-2 gap-2.5">
+            <div class="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
+              <span class="text-[9px] font-extrabold uppercase text-slate-400 block mb-1">Task 1 (Prep)</span>
+              <input id="input-task1" type="text" class="w-full text-xs font-bold text-slate-800 outline-none" />
             </div>
-            <input id="input-lunch" type="text" class="w-full text-base font-bold text-slate-800 outline-none placeholder-slate-300" placeholder="e.g. वरण भात, पोळी, भेंडी भाजी" />
-          </div>
-
-          <div id="card-dinner" class="meal-card bg-white border border-slate-200/80 rounded-2xl p-3.5 shadow-sm focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
-            <div class="flex items-center justify-between mb-1">
-              <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Dinner</span>
-              </div>
-              <span id="badge-dinner" class="hidden text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">Active Now</span>
-            </div>
-            <input id="input-dinner" type="text" class="w-full text-base font-bold text-slate-800 outline-none placeholder-slate-300" placeholder="e.g. मुगाची खिचडी, कढी, पापड" />
-          </div>
-
-          <!-- Tasks Grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
-            <div class="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-sm focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-500/20 transition-all">
-              <div class="flex items-center gap-1.5 mb-1">
-                <span class="w-2 h-2 rounded-full bg-teal-500"></span>
-                <span class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Task 1 (Today Prep)</span>
-              </div>
-              <input id="input-task1" type="text" class="w-full text-xs font-bold text-slate-800 outline-none placeholder-slate-300" placeholder="e.g. दूध आणणे, कोथिंबीर कापणे" />
-            </div>
-
-            <div class="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-sm focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/20 transition-all">
-              <div class="flex items-center gap-1.5 mb-1">
-                <span class="w-2 h-2 rounded-full bg-rose-500"></span>
-                <span class="text-[9px] font-extrabold uppercase tracking-wider text-rose-500">Task 2 (Advance Prep 🌙)</span>
-              </div>
-              <input id="input-task2" type="text" class="w-full text-xs font-bold text-slate-800 outline-none placeholder-slate-300" placeholder="e.g. उद्यासाठी साबुदाणा भिजवणे" />
+            <div class="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm">
+              <span class="text-[9px] font-extrabold uppercase text-rose-500 block mb-1">Task 2 (Advance 🌙)</span>
+              <input id="input-task2" type="text" class="w-full text-xs font-bold text-slate-800 outline-none" />
             </div>
           </div>
         </div>
 
-        <!-- Sync Button -->
-        <button onclick="saveCurrentDayMenu()" id="save-btn" class="w-full bg-slate-900 hover:bg-slate-800 active:scale-[0.99] text-white font-extrabold text-sm py-3.5 rounded-2xl shadow-lg shadow-slate-900/10 transition-all flex items-center justify-center gap-2">
-          <span>💾 Save & Sync E-Paper</span>
+        <button onclick="saveCurrentDayMenu()" id="save-btn" class="w-full bg-slate-900 text-white font-extrabold text-sm py-4 rounded-2xl shadow-lg transition-all">
+          💾 Save & Sync E-Paper Now
         </button>
       </section>
 
-      <!-- SETTINGS MODAL -->
-      <div id="settings-modal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4">
-          <div class="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h3 class="font-extrabold text-slate-900 text-sm">Settings & Preferences</h3>
-            <button onclick="toggleSettingsModal()" class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold hover:bg-slate-200">✕</button>
-          </div>
-
-          <div class="space-y-3 text-xs">
-            <div>
-              <label class="block font-bold text-slate-600 mb-1">Active Cuisine Theme</label>
-              <select id="setting-cuisine" onchange="changeCuisineFromSettings(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold outline-none">
-                <option value="Maharashtrian">Maharashtrian (पारंपारिक)</option>
-                <option value="South Indian">South Indian (सांबार, डोसा)</option>
-                <option value="North Indian / Punjabi">North Indian / Punjabi</option>
-                <option value="Gujarati">Gujarati (थेपला, कढी)</option>
-                <option value="Marwadi / Rajasthani">Marwadi / Rajasthani</option>
-                <option value="Continental / European">Continental / European</option>
-                <option value="USA / American">USA / American</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 mb-1">Dietary Filter</label>
-              <select id="setting-diet" onchange="changeDietFromSettings(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold outline-none">
-                <option value="VEG">🟢 Pure Vegetarian</option>
-                <option value="NON_VEG">🔴 Non-Vegetarian</option>
-                <option value="BOTH">🟡 Both / Flexible</option>
-              </select>
-            </div>
-
-            <div class="grid grid-cols-3 gap-2">
-              <div>
-                <label class="block font-bold text-slate-600 mb-1">Breakfast</label>
-                <input id="time-bf" type="text" value="08:00-09:30" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center font-mono font-bold" />
-              </div>
-              <div>
-                <label class="block font-bold text-slate-600 mb-1">Lunch</label>
-                <input id="time-lunch" type="text" value="12:30-14:00" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center font-mono font-bold" />
-              </div>
-              <div>
-                <label class="block font-bold text-slate-600 mb-1">Dinner</label>
-                <input id="time-dinner" type="text" value="20:00-21:30" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center font-mono font-bold" />
-              </div>
-            </div>
-
-            <div>
-              <label class="block font-bold text-slate-600 mb-1">Custom Gemini API Key (BYOK)</label>
-              <input id="user-gemini-key" type="password" placeholder="AIzaSy..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono text-[11px] outline-none" />
-            </div>
-          </div>
-
-          <button onclick="saveSettings()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs py-3 rounded-xl transition-all">
-            Save Preferences
-          </button>
-        </div>
-      </div>
-
-      <!-- LIVE E-PAPER PREVIEW MODAL -->
       <div id="preview-modal" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl border border-slate-100 space-y-3">
+        <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-3">
           <div class="flex items-center justify-between pb-2 border-b border-slate-100">
             <div>
               <h3 class="font-extrabold text-slate-900 text-sm">4.2" E-Paper Preview</h3>
-              <p class="text-[10px] text-slate-400">Live 1-bit monochrome stream (N1B4V02 / 400x300)</p>
+              <p class="text-[10px] text-slate-400">Live 1-bit bitmap stream (N1B4V02)</p>
             </div>
-            <button onclick="togglePreviewModal()" class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold hover:bg-slate-200">✕</button>
+            <button onclick="togglePreviewModal()" class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold">✕</button>
           </div>
-
-          <div class="bg-slate-100 rounded-2xl p-1.5 flex items-center justify-center overflow-hidden border border-slate-200">
+          <div class="bg-slate-100 rounded-2xl p-1.5 border border-slate-200">
             <img id="epaper-stream-img" src="/display.bmp" alt="E-Paper Stream" class="w-full h-auto rounded-xl shadow-inner border border-slate-300" />
           </div>
-
           <div class="flex gap-2">
-            <button onclick="refreshPreviewImage()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 rounded-xl transition-all">
-              🔄 Refresh
-            </button>
-            <a href="/logs" target="_blank" class="flex-1 bg-teal-50 text-teal-700 hover:bg-teal-100 text-xs font-bold py-2 rounded-xl text-center transition-all">
-              📊 Logs
-            </a>
+            <button onclick="refreshPreviewImage()" class="flex-1 bg-slate-100 text-slate-700 text-xs font-bold py-2 rounded-xl">🔄 Refresh</button>
+            <a href="/logs" target="_blank" class="flex-1 bg-teal-50 text-teal-700 text-xs font-bold py-2 rounded-xl text-center">📊 Logs</a>
           </div>
         </div>
       </div>
 
-      <footer class="w-full max-w-md px-4 py-4 text-center text-[11px] text-slate-400 font-english">
-        MealSync V1.0 • Connected Kitchen
-      </footer>
-
-      <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-full shadow-xl opacity-0 pointer-events-none transition-all duration-300">
-        Menu Saved!
+      <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-full opacity-0 pointer-events-none transition-all duration-300">
+        Saved!
       </div>
 
       <script>
-        let currentScreen = "login";
         let activeDay = "Monday";
         let activeCuisine = "Maharashtrian";
         let activeDiet = "VEG";
         let weeklyMenuCache = {};
 
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
           const storedUser = localStorage.getItem('MEALSYNC_USER');
           const storedCuisine = localStorage.getItem('MEALSYNC_CUISINE');
           const storedDiet = localStorage.getItem('MEALSYNC_DIET_PREF');
-          const storedKey = localStorage.getItem('MEALSYNC_USER_GEMINI_KEY');
 
           if (storedDiet) activeDiet = storedDiet;
-          if (storedKey) document.getElementById('user-gemini-key').value = storedKey;
+          if (storedCuisine) activeCuisine = storedCuisine;
 
-          if (storedUser && storedCuisine) {
-            activeCuisine = storedCuisine;
+          if (storedUser) {
             showScreen('planner');
             initTodayTab();
-            loadWeeklySchedule();
-          } else if (storedUser) {
-            showScreen('cuisine');
+            await loadWeeklySchedule();
           } else {
             showScreen('login');
           }
-
-          if ("Notification" in window && Notification.permission === "default") {
-            Notification.requestPermission();
-          }
-
-          setInterval(checkActiveMealWindow, 60000);
-          checkActiveMealWindow();
         });
 
         function setDiet(diet) {
           activeDiet = diet;
           ['veg', 'nonveg', 'both'].forEach(d => {
-            const btn = document.getElementById(`diet-btn-${d}`);
-            btn.className = "diet-btn py-2.5 rounded-xl border text-xs font-bold transition-all bg-slate-50 border-slate-200 text-slate-600";
+            document.getElementById(`diet-btn-${d}`).className = "py-2.5 rounded-xl border text-xs font-bold bg-slate-50 border-slate-200 text-slate-600";
           });
-          const activeBtn = document.getElementById(`diet-btn-${diet.toLowerCase().replace('_','')}`);
-          if (activeBtn) {
-            activeBtn.className = "diet-btn py-2.5 rounded-xl border text-xs font-bold transition-all bg-emerald-50 border-emerald-500 text-emerald-700";
-          }
+          const btn = document.getElementById(`diet-btn-${diet.toLowerCase().replace('_','')}`);
+          if (btn) btn.className = "py-2.5 rounded-xl border text-xs font-bold bg-emerald-50 border-emerald-500 text-emerald-700";
         }
 
         function showScreen(screen) {
@@ -818,61 +668,39 @@ def app_home():
             document.getElementById('active-cuisine-badge').innerText = activeCuisine;
             document.getElementById('active-diet-badge').innerText = activeDiet === 'VEG' ? '🟢 Veg' : (activeDiet === 'NON_VEG' ? '🔴 Non-Veg' : '🟡 Both');
           }
-          currentScreen = screen;
         }
 
         function handleLoginSubmit() {
           const name = document.getElementById('login-name').value.trim();
-          if (!name) {
-            showToast("Please enter your name.");
-            return;
-          }
+          if (!name) return showToast("Please enter your name.");
           localStorage.setItem('MEALSYNC_USER', JSON.stringify({ name }));
           localStorage.setItem('MEALSYNC_DIET_PREF', activeDiet);
           showScreen('cuisine');
         }
 
-        function selectCuisineTheme(cuisine) {
+        async function selectCuisineTheme(cuisine) {
           activeCuisine = cuisine;
           localStorage.setItem('MEALSYNC_CUISINE', cuisine);
-          document.getElementById('setting-cuisine').value = cuisine;
           showScreen('planner');
           initTodayTab();
-          loadWeeklySchedule();
-        }
-
-        function changeCuisineFromSettings(cuisine) {
-          activeCuisine = cuisine;
-          localStorage.setItem('MEALSYNC_CUISINE', cuisine);
-          document.getElementById('active-cuisine-badge').innerText = cuisine;
-          showToast(`Cuisine changed to ${cuisine}`);
-        }
-
-        function changeDietFromSettings(diet) {
-          activeDiet = diet;
-          localStorage.setItem('MEALSYNC_DIET_PREF', diet);
-          document.getElementById('active-diet-badge').innerText = activeDiet === 'VEG' ? '🟢 Veg' : (activeDiet === 'NON_VEG' ? '🔴 Non-Veg' : '🟡 Both');
-          showToast(`Diet filter updated: ${diet}`);
+          await loadWeeklySchedule();
         }
 
         function initTodayTab() {
-          const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-          const today = dayNames[new Date().getDay()];
-          selectDay(today);
+          const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          selectDay(days[new Date().getDay()]);
         }
 
         function selectDay(day) {
           activeDay = day;
           document.getElementById('active-day-label').innerText = `Planning: ${day}`;
-
           document.querySelectorAll('.day-btn').forEach(btn => {
             if (btn.innerText.toLowerCase().startsWith(day.slice(0, 3).toLowerCase())) {
-              btn.className = "day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-teal-600 text-white shadow-md shadow-teal-500/20";
+              btn.className = "day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-600 text-white shadow-md";
             } else {
-              btn.className = "day-btn px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-white border border-slate-200 text-slate-600 hover:bg-slate-100";
+              btn.className = "day-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600";
             }
           });
-
           renderActiveDayInputs();
         }
 
@@ -881,37 +709,43 @@ def app_home():
             const res = await fetch('/api/menu');
             if (res.ok) {
               const data = await res.json();
-              data.forEach(item => {
+              if (data.active_cuisine) activeCuisine = data.active_cuisine;
+              if (data.active_diet) activeDiet = data.active_diet;
+              data.menu.forEach(item => {
                 weeklyMenuCache[item.day_name] = item;
               });
+              document.getElementById('active-cuisine-badge').innerText = activeCuisine;
+              document.getElementById('active-diet-badge').innerText = activeDiet === 'VEG' ? '🟢 Veg' : (activeDiet === 'NON_VEG' ? '🔴 Non-Veg' : '🟡 Both');
               renderActiveDayInputs();
             }
           } catch (err) {
-            showToast("Could not load menu from cloud.");
+            showToast("Failed to load schedule from cloud.");
           }
         }
 
         function renderActiveDayInputs() {
           const item = weeklyMenuCache[activeDay] || { breakfast: '', lunch: '', dinner: '', task1: '', task2: '' };
-          document.getElementById('input-breakfast').value = (item.breakfast || '').replace(/\\+/g, ',');
-          document.getElementById('input-lunch').value = (item.lunch || '').replace(/\\+/g, ',');
-          document.getElementById('input-dinner').value = (item.dinner || '').replace(/\\+/g, ',');
-          document.getElementById('input-task1').value = (item.task1 || '').replace(/\\+/g, ',');
-          document.getElementById('input-task2').value = (item.task2 || '').replace(/\\+/g, ',');
+          document.getElementById('input-breakfast').value = item.breakfast || '';
+          document.getElementById('input-lunch').value = item.lunch || '';
+          document.getElementById('input-dinner').value = item.dinner || '';
+          document.getElementById('input-task1').value = item.task1 || '';
+          document.getElementById('input-task2').value = item.task2 || '';
         }
 
         async function saveCurrentDayMenu() {
           const saveBtn = document.getElementById('save-btn');
-          saveBtn.innerText = "Syncing...";
+          saveBtn.innerText = "Syncing with Display...";
           saveBtn.disabled = true;
 
           const payload = {
             day_name: activeDay,
-            breakfast: document.getElementById('input-breakfast').value.trim().replace(/\\+/g, ','),
-            lunch: document.getElementById('input-lunch').value.trim().replace(/\\+/g, ','),
-            dinner: document.getElementById('input-dinner').value.trim().replace(/\\+/g, ','),
-            task1: document.getElementById('input-task1').value.trim().replace(/\\+/g, ','),
-            task2: document.getElementById('input-task2').value.trim().replace(/\\+/g, ',')
+            cuisine: activeCuisine,
+            diet: activeDiet,
+            breakfast: document.getElementById('input-breakfast').value.trim(),
+            lunch: document.getElementById('input-lunch').value.trim(),
+            dinner: document.getElementById('input-dinner').value.trim(),
+            task1: document.getElementById('input-task1').value.trim(),
+            task2: document.getElementById('input-task2').value.trim()
           };
 
           try {
@@ -928,17 +762,14 @@ def app_home():
           } catch (err) {
             showToast("❌ Failed to save menu.");
           } finally {
-            saveBtn.innerText = "💾 Save & Sync E-Paper";
+            saveBtn.innerText = "💾 Save & Sync E-Paper Now";
             saveBtn.disabled = false;
           }
         }
 
         async function generatePlanForDay() {
           const aiBtn = document.getElementById('ai-gen-btn');
-          const theme = document.getElementById('ai-theme-input').value.trim();
-          const userKey = localStorage.getItem('MEALSYNC_USER_GEMINI_KEY') || "";
-
-          aiBtn.innerText = "Cooking...";
+          aiBtn.innerText = "...";
           aiBtn.disabled = true;
 
           try {
@@ -949,21 +780,20 @@ def app_home():
                 day_name: activeDay,
                 cuisine: activeCuisine,
                 diet: activeDiet,
-                prompt: theme || `${activeDiet} ${activeCuisine} menu`,
-                gemini_key: userKey
+                prompt: document.getElementById('ai-theme-input').value.trim() || `${activeDiet} ${activeCuisine} menu`
               })
             });
 
             if (res.ok) {
               const aiData = await res.json();
-              document.getElementById('input-breakfast').value = (aiData.breakfast || '').replace(/\\+/g, ',');
-              document.getElementById('input-lunch').value = (aiData.lunch || '').replace(/\\+/g, ',');
-              document.getElementById('input-dinner').value = (aiData.dinner || '').replace(/\\+/g, ',');
-              document.getElementById('input-task1').value = (aiData.task1 || '').replace(/\\+/g, ',');
-              document.getElementById('input-task2').value = (aiData.task2 || '').replace(/\\+/g, ',');
-              showToast("✨ AI Menu Generated! Tap Save to sync.");
+              document.getElementById('input-breakfast').value = aiData.breakfast || '';
+              document.getElementById('input-lunch').value = aiData.lunch || '';
+              document.getElementById('input-dinner').value = aiData.dinner || '';
+              document.getElementById('input-task1').value = aiData.task1 || '';
+              document.getElementById('input-task2').value = aiData.task2 || '';
+              showToast("✨ AI Menu Ready! Tap Save & Sync.");
             } else {
-              showToast("API error. Check key in Settings.");
+              showToast("AI Error. Check key.");
             }
           } catch (e) {
             showToast("Error generating menu.");
@@ -973,66 +803,10 @@ def app_home():
           }
         }
 
-        function parseRange(str) {
-          try {
-            const [start, end] = str.split('-');
-            const [sh, sm] = start.split(':').map(Number);
-            const [eh, em] = end.split(':').map(Number);
-            return { sh, sm, eh, em };
-          } catch {
-            return null;
-          }
-        }
-
-        function checkActiveMealWindow() {
-          const now = new Date();
-          const curMins = now.getHours() * 60 + now.getMinutes();
-
-          const bf = parseRange(document.getElementById('time-bf').value || "08:00-09:30");
-          const lunch = parseRange(document.getElementById('time-lunch').value || "12:30-14:00");
-          const dinner = parseRange(document.getElementById('time-dinner').value || "20:00-21:30");
-
-          ['breakfast', 'lunch', 'dinner'].forEach(m => {
-            const card = document.getElementById(`card-${m}`);
-            const badge = document.getElementById(`badge-${m}`);
-            if (card) card.classList.remove('ring-2', 'ring-emerald-500', 'active-pulse');
-            if (badge) badge.classList.add('hidden');
-          });
-
-          const check = (range, mealName) => {
-            if (!range) return;
-            const startMins = range.sh * 60 + range.sm;
-            const endMins = range.eh * 60 + range.em;
-            if (curMins >= startMins && curMins <= endMins) {
-              const card = document.getElementById(`card-${mealName}`);
-              const badge = document.getElementById(`badge-${mealName}`);
-              if (card) card.classList.add('ring-2', 'ring-emerald-500', 'active-pulse');
-              if (badge) badge.classList.remove('hidden');
-            }
-          };
-
-          check(bf, 'breakfast');
-          check(lunch, 'lunch');
-          check(dinner, 'dinner');
-        }
-
-        function toggleSettingsModal() {
-          document.getElementById('settings-modal').classList.toggle('hidden');
-        }
-
-        function saveSettings() {
-          const key = document.getElementById('user-gemini-key').value.trim();
-          if (key) localStorage.setItem('MEALSYNC_USER_GEMINI_KEY', key);
-          toggleSettingsModal();
-          showToast("Preferences saved!");
-        }
-
         function togglePreviewModal() {
           const modal = document.getElementById('preview-modal');
           modal.classList.toggle('hidden');
-          if (!modal.classList.contains('hidden')) {
-            refreshPreviewImage();
-          }
+          if (!modal.classList.contains('hidden')) refreshPreviewImage();
         }
 
         function refreshPreviewImage() {
