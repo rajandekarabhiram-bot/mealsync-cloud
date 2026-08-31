@@ -236,11 +236,11 @@ def api_telemetry():
             
     return jsonify({
         "status": "online",
-        "battery_pct": LATEST_TELEMETRY.get("pct", 100),
-        "battery_label": LATEST_TELEMETRY.get("batt", "500d+"),
-        "voltage": LATEST_TELEMETRY.get("v", 4.15),
-        "wifi_strength": LATEST_TELEMETRY.get("wifi_strength", "Excellent (3/3)"),
-        "rssi": LATEST_TELEMETRY.get("rssi", -55),
+        "battery_pct": int(LATEST_TELEMETRY.get("pct", 100)),
+        "battery_label": str(LATEST_TELEMETRY.get("batt", "500d+")),
+        "voltage": float(LATEST_TELEMETRY.get("v", 4.15)),
+        "wifi_strength": str(LATEST_TELEMETRY.get("wifi_strength", "Excellent (3/3)")),
+        "rssi": int(LATEST_TELEMETRY.get("rssi", -55)),
         "last_seen": LATEST_TELEMETRY.get("timestamp", datetime.now(IST).strftime("%I:%M:%S %p"))
     }), 200
 
@@ -367,7 +367,7 @@ def receive_device_log():
         return jsonify({"error": str(e)}), 400
 
 # ============================================================================
-# 5. E-PAPER BITMAP RENDERER (Multi-line Tasks & Unified Telemetry)
+# 5. E-PAPER BITMAP RENDERER (400x300 Otsu 1-Bit Stream)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -446,7 +446,7 @@ def render_display():
         ensure_fonts()
         date_str, data = get_target_menu_data()
 
-        # Telemetry resolution prioritizing hardware values
+        # Telemetry priority resolution
         rssi = int(request.args.get('rssi', LATEST_TELEMETRY.get('rssi', -55)))
         batt_pct = int(request.args.get('pct', LATEST_TELEMETRY.get('pct', 100)))
         batt_str = str(request.args.get('batt', LATEST_TELEMETRY.get('batt', '500d+')))
@@ -459,12 +459,12 @@ def render_display():
         font_badge = safe_font(FONT_MAP["english"], 13)
         font_section = safe_font(FONT_MAP["english"], 15)
 
-        # Header
+        # Header Bar
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Synchronized Wi-Fi Bars
+        # Wi-Fi Indicator (Matches App & Serial)
         signal_bars = 3 if rssi >= -60 else (2 if rssi >= -75 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4,  wifiY + 16, wifiX + 8,  wifiY + 24], fill=255 if signal_bars >= 1 else 0)
@@ -476,7 +476,7 @@ def render_display():
         date_center_x = (CANVAS_W - date_w) // 2
         draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
 
-        # Synchronized Battery
+        # Battery Indicator & Badge
         batX, batY = 360 * SCALE, 12 * SCALE
         draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
@@ -505,14 +505,14 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
 
-        # Checkboxes & Multi-line Tasks Layout
+        # Checkboxes & Tasks
         draw.rectangle([126 * SCALE, 238 * SCALE, 138 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 142, 234, 116, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
         draw.rectangle([264 * SCALE, 238 * SCALE, 276 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 280, 234, 114, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Downscaling & 1-bit monochrome dithering
+        # Downscale & 1-bit monochrome dithering
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
