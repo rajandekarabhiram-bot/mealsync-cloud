@@ -107,7 +107,7 @@ def get_font_for_text(text):
     return FONT_MAP["english"]
 
 # ============================================================================
-# 3. DATABASE SETUP WITH PERSISTENT TELEMETRY
+# 3. DATABASE SETUP & PERSISTENCE
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -458,7 +458,7 @@ def render_display():
         date_str, data = get_target_menu_data()
         telem = get_telemetry()
 
-        # Extract values
+        # Telemetry ingestion from hardware request
         rssi = int(request.args.get('rssi', telem["rssi"]))
         batt_pct = int(request.args.get('pct', telem["battery_pct"]))
         batt_str = str(request.args.get('batt', telem["battery_label"]))
@@ -481,7 +481,7 @@ def render_display():
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi Bars (White on Black)
+        # Wi-Fi Bars
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 4 * SCALE,  wifiY + 8 * SCALE, wifiX + 7 * SCALE,  wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
@@ -548,7 +548,7 @@ def render_display():
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 6. ROOT ROUTE (Fixes 404 Page Not Found)
+# 6. ROOT ROUTE
 # ============================================================================
 @app.route('/')
 def home():
