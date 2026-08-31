@@ -25,7 +25,7 @@ CANVAS_H = PANEL_HEIGHT * SCALE
 LATEST_TELEMETRY = {
     "batt": "500d+",
     "pct": 100,
-    "v": 4.12,
+    "v": 4.15,
     "wifi_strength": "Excellent (3/3)",
     "rssi": -55,
     "last_seen": "Online",
@@ -119,7 +119,7 @@ def get_font_for_text(text):
     return FONT_MAP["english"]
 
 # ============================================================================
-# 3. DATABASE SETUP
+# 3. DATABASE SETUP & INITIALIZATION
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -238,9 +238,9 @@ def api_telemetry():
         "status": "online",
         "battery_pct": LATEST_TELEMETRY.get("pct", 100),
         "battery_label": LATEST_TELEMETRY.get("batt", "500d+"),
-        "voltage": LATEST_TELEMETRY.get("v", 4.10),
-        "wifi_strength": LATEST_TELEMETRY.get("wifi_strength", "Good (2/3)"),
-        "rssi": LATEST_TELEMETRY.get("rssi", -60),
+        "voltage": LATEST_TELEMETRY.get("v", 4.15),
+        "wifi_strength": LATEST_TELEMETRY.get("wifi_strength", "Excellent (3/3)"),
+        "rssi": LATEST_TELEMETRY.get("rssi", -55),
         "last_seen": LATEST_TELEMETRY.get("timestamp", datetime.now(IST).strftime("%I:%M:%S %p"))
     }), 200
 
@@ -353,9 +353,10 @@ def receive_device_log():
         log_entry['timestamp'] = now_str
         
         LATEST_TELEMETRY["batt"] = log_entry.get("batt", "500d+")
-        LATEST_TELEMETRY["pct"] = log_entry.get("pct", 100)
-        LATEST_TELEMETRY["v"] = log_entry.get("v", 4.10)
-        LATEST_TELEMETRY["wifi_strength"] = log_entry.get("wifi_strength", "Good")
+        LATEST_TELEMETRY["pct"] = int(log_entry.get("pct", 100))
+        LATEST_TELEMETRY["v"] = float(log_entry.get("v", 4.15))
+        LATEST_TELEMETRY["wifi_strength"] = log_entry.get("wifi_strength", "Excellent (3/3)")
+        LATEST_TELEMETRY["rssi"] = int(log_entry.get("rssi", -55))
         LATEST_TELEMETRY["timestamp"] = now_str
         
         DEVICE_LOGS.insert(0, log_entry)
@@ -366,7 +367,7 @@ def receive_device_log():
         return jsonify({"error": str(e)}), 400
 
 # ============================================================================
-# 5. E-PAPER BITMAP RENDERER (Multi-line Tasks & Regional Scripts)
+# 5. E-PAPER BITMAP RENDERER (Multi-line Tasks & Unified Telemetry)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -445,9 +446,10 @@ def render_display():
         ensure_fonts()
         date_str, data = get_target_menu_data()
 
-        rssi = int(request.args.get('rssi', -50))
-        batt_str = str(request.args.get('batt', '500d+'))
-        batt_pct = int(request.args.get('pct', 100))
+        # Telemetry resolution prioritizing hardware values
+        rssi = int(request.args.get('rssi', LATEST_TELEMETRY.get('rssi', -55)))
+        batt_pct = int(request.args.get('pct', LATEST_TELEMETRY.get('pct', 100)))
+        batt_str = str(request.args.get('batt', LATEST_TELEMETRY.get('batt', '500d+')))
 
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
@@ -462,29 +464,29 @@ def render_display():
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi
-        signal_bars = 3 if rssi >= -67 else (2 if rssi >= -80 else 1)
+        # Synchronized Wi-Fi Bars
+        signal_bars = 3 if rssi >= -60 else (2 if rssi >= -75 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
-        draw.rectangle([wifiX + 4, wifiY + 20, wifiX + 8,  wifiY + 28], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 14, wifiY + 12, wifiX + 18, wifiY + 28], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 24, wifiY + 4,  wifiX + 28, wifiY + 28], fill=255 if signal_bars >= 3 else 0)
+        draw.rectangle([wifiX + 4,  wifiY + 16, wifiX + 8,  wifiY + 24], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 12, wifiY + 10, wifiX + 16, wifiY + 24], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 20, wifiY + 4,  wifiX + 24, wifiY + 24], fill=255 if signal_bars >= 3 else 0)
 
         # Date
         date_w = get_text_width(font_date, date_str)
         date_center_x = (CANVAS_W - date_w) // 2
         draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
 
-        # Battery
-        batX, batY = 362 * SCALE, 12 * SCALE
-        draw.rectangle([batX, batY, batX + 24 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
-        draw.rectangle([batX + 24 * SCALE, batY + 3 * SCALE, batX + 26 * SCALE, batY + 11 * SCALE], fill=255)
+        # Synchronized Battery
+        batX, batY = 360 * SCALE, 12 * SCALE
+        draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
+        draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
 
-        fill_w = max(0, min(20 * SCALE, int((batt_pct / 100.0) * 20 * SCALE)))
+        fill_w = max(0, min(22 * SCALE, int((batt_pct / 100.0) * 22 * SCALE)))
         if fill_w > 0:
             draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 12 * SCALE], fill=255)
 
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 10, 11 * SCALE), batt_str, font=font_badge, fill=255)
+        draw.text((batX - badge_w - 8, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
         # Sidebar
         sidebar_w = 118 * SCALE
@@ -503,14 +505,14 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
 
-        # Checkboxes & Tasks
+        # Checkboxes & Multi-line Tasks Layout
         draw.rectangle([126 * SCALE, 238 * SCALE, 138 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 142, 234, 116, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
         draw.rectangle([264 * SCALE, 238 * SCALE, 276 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 280, 234, 114, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Downscaling & 1-bit dithering
+        # Downscaling & 1-bit monochrome dithering
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
