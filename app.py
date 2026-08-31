@@ -34,9 +34,6 @@ LATEST_TELEMETRY = {
 
 DEVICE_LOGS = []
 
-# ============================================================================
-# 1. CORS & CACHE HEADERS
-# ============================================================================
 @app.after_request
 def add_cors_and_cache_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -45,9 +42,6 @@ def add_cors_and_cache_headers(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
-# ============================================================================
-# 2. GLOBAL & REGIONAL FONT ENGINE
-# ============================================================================
 FONT_MAP = {
     "english": "Rubik-Bold.ttf",
     "devanagari": "NotoSansDevanagari-Bold.ttf",
@@ -118,9 +112,6 @@ def get_font_for_text(text):
         if (0xAC00 <= cp <= 0xD7AF) or (0x1100 <= cp <= 0x11FF): return FONT_MAP["korean"]
     return FONT_MAP["english"]
 
-# ============================================================================
-# 3. DATABASE SETUP & INITIALIZATION
-# ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
     conn.row_factory = sqlite3.Row
@@ -212,9 +203,6 @@ def get_target_menu_data():
 
     return date_str, data
 
-# ============================================================================
-# 4. REST APIS & TELEMETRY
-# ============================================================================
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
     global SYNC_VERSION
@@ -315,7 +303,7 @@ def api_ai_suggest():
     Rules:
     1. Diet: If VEG, strictly pure vegetarian. If NON_VEG, include authentic meat/fish.
     2. Format: Use comma separators (", ") between items. Keep concise (<35 chars per line).
-    3. Script: Native script for the region (Devanagari, Tamil, Telugu, Kannada, Gujarati, Arabic, East Asian, etc.).
+    3. Script: Native script for the region.
     4. task1: Today's fresh prep.
     5. task2: Overnight/advance prep for tomorrow.
     """
@@ -352,10 +340,10 @@ def receive_device_log():
         now_str = datetime.now(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
         log_entry['timestamp'] = now_str
         
-        LATEST_TELEMETRY["batt"] = log_entry.get("batt", "500d+")
+        LATEST_TELEMETRY["batt"] = str(log_entry.get("batt", "500d+"))
         LATEST_TELEMETRY["pct"] = int(log_entry.get("pct", 100))
         LATEST_TELEMETRY["v"] = float(log_entry.get("v", 4.15))
-        LATEST_TELEMETRY["wifi_strength"] = log_entry.get("wifi_strength", "Excellent (3/3)")
+        LATEST_TELEMETRY["wifi_strength"] = str(log_entry.get("wifi_strength", "Excellent (3/3)"))
         LATEST_TELEMETRY["rssi"] = int(log_entry.get("rssi", -55))
         LATEST_TELEMETRY["timestamp"] = now_str
         
@@ -366,9 +354,6 @@ def receive_device_log():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-# ============================================================================
-# 5. E-PAPER BITMAP RENDERER (400x300 Otsu 1-Bit Stream)
-# ============================================================================
 def safe_font(font_path, size_1x):
     try:
         if os.path.exists(font_path) and os.path.getsize(font_path) > 2000:
@@ -446,10 +431,22 @@ def render_display():
         ensure_fonts()
         date_str, data = get_target_menu_data()
 
-        # Telemetry priority resolution
-        rssi = int(request.args.get('rssi', LATEST_TELEMETRY.get('rssi', -55)))
-        batt_pct = int(request.args.get('pct', LATEST_TELEMETRY.get('pct', 100)))
-        batt_str = str(request.args.get('batt', LATEST_TELEMETRY.get('batt', '500d+')))
+        # Ingest parameters from incoming request into live cache
+        if 'rssi' in request.args:
+            try: LATEST_TELEMETRY['rssi'] = int(request.args.get('rssi'))
+            except: pass
+        if 'pct' in request.args:
+            try: LATEST_TELEMETRY['pct'] = int(request.args.get('pct'))
+            except: pass
+        if 'batt' in request.args:
+            LATEST_TELEMETRY['batt'] = str(request.args.get('batt'))
+        if 'v' in request.args:
+            try: LATEST_TELEMETRY['v'] = float(request.args.get('v'))
+            except: pass
+
+        rssi = int(LATEST_TELEMETRY['rssi'])
+        batt_pct = int(LATEST_TELEMETRY['pct'])
+        batt_str = str(LATEST_TELEMETRY['batt'])
 
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
@@ -459,24 +456,28 @@ def render_display():
         font_badge = safe_font(FONT_MAP["english"], 13)
         font_section = safe_font(FONT_MAP["english"], 15)
 
-        # Header Bar
+        # Header Bar (Black Header, White Text)
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
 
-        # Wi-Fi Indicator (Matches App & Serial)
-        signal_bars = 3 if rssi >= -60 else (2 if rssi >= -75 else 1)
+        # Wi-Fi Bars (White on black header)
+        signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = 96 * SCALE, 13 * SCALE
-        draw.rectangle([wifiX + 4,  wifiY + 16, wifiX + 8,  wifiY + 24], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 12, wifiY + 10, wifiX + 16, wifiY + 24], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 20, wifiY + 4,  wifiX + 24, wifiY + 24], fill=255 if signal_bars >= 3 else 0)
+        
+        # Bar 1 (Always on)
+        draw.rectangle([wifiX + 4 * SCALE,  wifiY + 8 * SCALE, wifiX + 7 * SCALE,  wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
+        # Bar 2
+        draw.rectangle([wifiX + 9 * SCALE,  wifiY + 5 * SCALE, wifiX + 12 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
+        # Bar 3
+        draw.rectangle([wifiX + 14 * SCALE, wifiY + 2 * SCALE, wifiX + 17 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
 
         # Date
         date_w = get_text_width(font_date, date_str)
         date_center_x = (CANVAS_W - date_w) // 2
         draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
 
-        # Battery Indicator & Badge
+        # Battery
         batX, batY = 360 * SCALE, 12 * SCALE
         draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
@@ -486,7 +487,7 @@ def render_display():
             draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 12 * SCALE], fill=255)
 
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 8, 11 * SCALE), batt_str, font=font_badge, fill=255)
+        draw.text((batX - badge_w - 8 * SCALE, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
         # Sidebar
         sidebar_w = 118 * SCALE
@@ -505,14 +506,14 @@ def render_display():
         draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
 
-        # Checkboxes & Tasks
+        # Checkboxes & Multi-line Tasks Layout
         draw.rectangle([126 * SCALE, 238 * SCALE, 138 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task1"], 142, 234, 116, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
         draw.rectangle([264 * SCALE, 238 * SCALE, 276 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
         draw_autofit_text(draw, data["task2"], 280, 234, 114, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Downscale & 1-bit monochrome dithering
+        # Downscale & Dither
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
