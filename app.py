@@ -34,11 +34,11 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. GLOBAL & REGIONAL FONT ENGINE (Crisp Modern Fonts)
+# 2. GLOBAL & REGIONAL FONT ENGINE
 # ============================================================================
 FONT_MAP = {
-    "english": "Inter-Bold.ttf",
-    "english_sub": "Inter-SemiBold.ttf",
+    "english": "Rubik-Bold.ttf",
+    "english_sub": "Rubik-SemiBold.ttf",
     "devanagari": "NotoSansDevanagari-Bold.ttf",
     "gurmukhi": "NotoSansGurmukhi-Bold.ttf",
     "gujarati": "NotoSansGujarati-Bold.ttf",
@@ -58,8 +58,8 @@ FONT_MAP = {
 
 def ensure_fonts():
     font_urls = {
-        "Inter-Bold.ttf": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Bold.otf",
-        "Inter-SemiBold.ttf": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-SemiBold.otf",
+        "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf",
+        "Rubik-SemiBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-SemiBold.ttf",
         "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "NotoSansGurmukhi-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGurmukhi/NotoSansGurmukhi-Bold.ttf",
         "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf",
@@ -109,7 +109,7 @@ def get_font_for_text(text):
     return FONT_MAP["english"]
 
 # ============================================================================
-# 3. DATABASE SETUP & PERSISTENCE
+# 3. DATABASE SETUP & PERSISTENT TELEMETRY
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -149,12 +149,12 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM weekly_menu")
         if cur.fetchone()[0] == 0:
             default_days = [
-                ("Monday", "पोहे, चहा", "वरण भात, पोळी, भेंडी भाजी", "खिचडी, कढी, पापड", "दूध आणणे व भाजी धुणे", "मटकी मोड येण्यासाठी भिजवणे"),
+                ("Monday", "पोहे, चहा", "वरण भात, पोळी, भेंडी भाजी", "खिचडी, कढी, पापड", "ताज्या भाज्या चिरणे", "मटकी मोड येण्यासाठी भिजवणे"),
                 ("Tuesday", "उपमा, खोबरे चटणी", "पोळी, उसळ, भात", "थालीपीठ, लोणी", "किराणा सामान आणणे", "इडलीचे पीठ आंबवणे"),
-                ("Wednesday", "इडली, चटणी, सांबार", "वरण भात, पोळी, वांगी भाजी", "मसाला भात, कोशिंबीर", "ताज्या भाज्या चिरणे", "दही विरजण लावणे"),
-                ("Thursday", "शिरा, गरम दूध", "पोळी, शेवभाजी, भात", "मुगाची मऊ खिचडी", "कोथिंबीर कापणे व निवडणे", "सकाळचे दूध व्यवस्थित उकळणे"),
-                ("Friday", "मेथी पराठा, दही", "वरण भात, फ्लॉवर भाजी, पोळी", "दाल खिचडी, कढी", "मेथी निवडून सुकवून ठेवणे", "पोळ्यांचे पीठ मळणे"),
-                ("Saturday", "मिसळ पाव, लिंबू", "पोळी, पनीर भाजी, जीरा राईस", "पावभाजी, कांदा", "हिरवे मटार सोलून ठेवणे", "उकडलेले बटाटे तयार करणे"),
+                ("Wednesday", "इडली, चटणी, सांबार", "वरण भात, पोळी, वांगी भाजी", "मसाला भात, कोशिंबीर", "भाजी धुवून ठेवणे", "दही विरजण लावणे"),
+                ("Thursday", "शिरा, गरम दूध", "पोळी, शेवभाजी, भात", "मुगाची मऊ खिचडी", "कोथिंबीर कापणे", "दूध उकळून ठेवणे"),
+                ("Friday", "मेथी पराठा, दही", "वरण भात, फ्लॉवर भाजी, पोळी", "दाल खिचडी, कढी", "मेथी निवडून ठेवणे", "पोळ्यांचे पीठ मळणे"),
+                ("Saturday", "मिसळ पाव, लिंबू", "पोळी, पनीर भाजी, जीरा राईस", "पावभाजी, कांदा", "हिरवे मटार सोलणे", "उकडलेले बटाटे तयार करणे"),
                 ("Sunday", "डोसा, सांबार, चटणी", "पुरणपोळी, कटाची आमटी, भजी", "दही भात, लोणचे", "सांबार मसाला बारीक करणे", "पोहे व्यवस्थित चाळणे")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
@@ -241,7 +241,7 @@ def get_target_menu_data():
     return date_str, data
 
 # ============================================================================
-# 4. REST APIS & TELEMETRY
+# 4. REST APIS & HASH ENGINE
 # ============================================================================
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
@@ -332,7 +332,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. E-PAPER RENDERER (Dual Column Prep & Multi-Font Engine)
+# 5. DUAL-COLUMN TASK LAYOUT BITMAP RENDERER (400x300 Matrix)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -412,7 +412,6 @@ def render_display():
         date_str, data = get_target_menu_data()
         telem = get_telemetry()
 
-        # Telemetry ingestion from hardware request
         rssi = int(request.args.get('rssi', telem["rssi"]))
         batt_pct = int(request.args.get('pct', telem["battery_pct"]))
         batt_str = str(request.args.get('batt', telem["battery_label"]))
@@ -432,30 +431,30 @@ def render_display():
         font_sidebar = safe_font(FONT_MAP["english"], 14)
         font_subhead = safe_font(FONT_MAP["english_sub"], 10)
 
-        # 1. TOP HEADER (Solid Black Background)
+        # 1. TOP HEADER (Solid Black)
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         
-        # Logo & Date
+        # Logo
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
         
-        # Active Cuisine Pill
+        # Active Cuisine Sub-Label
         cuisine_label = f"• {data['cuisine'].upper()}"
         draw.text((92 * SCALE, 12 * SCALE), cuisine_label, font=font_cuisine, fill=200)
 
-        # Date Center
+        # Centered Date
         date_w = get_text_width(font_date, date_str)
         date_x = (CANVAS_W - date_w) // 2
         draw.text((date_x, 10 * SCALE), date_str, font=font_date, fill=255)
 
-        # Wi-Fi 3-Bar Signal
+        # Wi-Fi Indicator
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = 320 * SCALE, 13 * SCALE
         draw.rectangle([wifiX + 3 * SCALE, wifiY + 8 * SCALE, wifiX + 5 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + 7 * SCALE, wifiY + 5 * SCALE, wifiX + 9 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 11 * SCALE, wifiY + 2 * SCALE, wifiX + 13 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
 
-        # Battery Bar & Badge
+        # Battery Indicator
         batX, batY = 360 * SCALE, 12 * SCALE
         draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
@@ -478,30 +477,25 @@ def render_display():
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Horizontal separator before TASKS
         draw.line([(0, 226 * SCALE), (CANVAS_W, 226 * SCALE)], fill=0, width=2 * SCALE)
 
-        # Render Meals (Breakfast, Lunch, Dinner with Multilingual Regional Auto-Wrap)
+        # Meals Text
         draw_autofit_text(draw, data["breakfast"], 124, 46, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["lunch"], 124, 106, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
         draw_autofit_text(draw, data["dinner"], 124, 166, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
 
-        # 3. DUAL-COLUMN ADVANCE PREP & TASKS SECTION (y: 226 to 298)
-        # Column 1: Today's Fresh Prep (x: 10 to 195)
+        # 3. DUAL-COLUMN ADVANCE PREP & TASKS
+        # Column 1: Today's Fresh Prep
         draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 246 * SCALE], fill=0)
         draw.text((14 * SCALE, 234 * SCALE), "TODAY'S FRESH PREP", font=font_subhead, fill=255)
-        
-        # Checkbox 1
         draw.rectangle([16 * SCALE, 255 * SCALE, 26 * SCALE, 265 * SCALE], outline=0, width=SCALE)
         draw_autofit_text(draw, data["task1"], 30, 250, 164, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Column 2: Overnight Prep for Tomorrow (x: 204 to 390)
+        # Column 2: Overnight Prep for Tomorrow
         draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 246 * SCALE], fill=0)
         draw.text((208 * SCALE, 234 * SCALE), "OVERNIGHT / ADVANCE PREP", font=font_subhead, fill=255)
-
-        # Checkbox 2
         draw.rectangle([210 * SCALE, 255 * SCALE, 220 * SCALE, 265 * SCALE], outline=0, width=SCALE)
         draw_autofit_text(draw, data["task2"], 224, 250, 162, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
@@ -523,9 +517,6 @@ def render_display():
         traceback.print_exc()
         return f"Internal Error: {err}", 500
 
-# ============================================================================
-# 6. ROOT ROUTE (HTML Preview Card)
-# ============================================================================
 @app.route('/')
 def home():
     telem = get_telemetry()
