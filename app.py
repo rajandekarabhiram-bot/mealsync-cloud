@@ -7,7 +7,7 @@ import requests
 import traceback
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file, render_template_string, jsonify
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -34,7 +34,7 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. INDUSTRIAL GRADE FONT ENGINE
+# 2. HIGH-CONTRAST FONT ENGINE
 # ============================================================================
 FONT_FILES = {
     "latin_bold": "DejaVuSans-Bold.ttf",
@@ -90,31 +90,65 @@ def get_text_width(font, text):
     except Exception:
         return len(str(text)) * (8 * SCALE)
 
-def draw_wrapped_text(draw, text_str, x_1x, y_1x, max_w_1x, font, line_height_1x, max_lines=2, fill=0):
-    words = str(text_str).strip().split()
-    if not words:
+def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=15, min_size=11, max_lines=2, fill=0):
+    text_str = str(text_str).strip()
+    if not text_str:
         return
+        
+    words = text_str.split()
     max_w_px = max_w_1x * SCALE
-    lines = []
-    curr = []
-    for w in words:
-        test = " ".join(curr + [w])
-        if get_text_width(font, test) <= max_w_px:
-            curr.append(w)
-        else:
-            if curr:
-                lines.append(" ".join(curr))
-                curr = [w]
-            else:
-                lines.append(w)
-                curr = []
-    if curr:
-        lines.append(" ".join(curr))
+    max_h_px = max_h_1x * SCALE
 
+    selected_font = None
+    selected_lines = []
+    line_mult = 1.34
+
+    for size in range(max_size, min_size - 1, -1):
+        test_font = get_best_font(text_str, size)
+        lines, curr = [], []
+        for w in words:
+            test_line = " ".join(curr + [w])
+            if get_text_width(test_font, test_line) <= max_w_px:
+                curr.append(w)
+            else:
+                if curr:
+                    lines.append(" ".join(curr))
+                    curr = [w]
+                else:
+                    lines.append(w)
+                    curr = []
+        if curr:
+            lines.append(" ".join(curr))
+
+        line_h = int((size * SCALE) * line_mult)
+        if len(lines) <= max_lines and (len(lines) * line_h) <= max_h_px:
+            selected_font = test_font
+            selected_lines = lines
+            break
+
+    if not selected_font:
+        selected_font = get_best_font(text_str, min_size)
+        lines, curr = [], []
+        for w in words:
+            test_line = " ".join(curr + [w])
+            if get_text_width(selected_font, test_line) <= max_w_px:
+                curr.append(w)
+            else:
+                if curr:
+                    lines.append(" ".join(curr))
+                    curr = [w]
+                else:
+                    lines.append(w)
+                    curr = []
+        if curr:
+            lines.append(" ".join(curr))
+        selected_lines = lines[:max_lines]
+
+    line_h = int((selected_font.size if hasattr(selected_font, 'size') else (14 * SCALE)) * 1.15)
     curr_y = y_1x * SCALE
-    for line in lines[:max_lines]:
-        draw.text((x_1x * SCALE, curr_y), line, font=font, fill=fill)
-        curr_y += int(line_height_1x * SCALE)
+    for line in selected_lines:
+        draw.text((x_1x * SCALE, curr_y), line, font=selected_font, fill=fill)
+        curr_y += line_h
 
 # ============================================================================
 # 3. DATABASE SETUP & PERSISTENCE
@@ -143,13 +177,13 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM weekly_menu")
         if cur.fetchone()[0] == 0:
             default_days = [
-                ("Monday", "खमंग थालीपीठ व लोणी (Thalipeeth)", "वरण भात, पोळी व भेंडी भाजी (Varan Bhaat, Bhaji)", "मूग डाळ खिचडी व कढी (Moong Khichdi, Kadhi)", "उसळीसाठी मटकी भिजवणे (Soak Matki)", "इडलीचे पीठ आंबवणे (Ferment Idli Batter)"),
-                ("Tuesday", "मऊ कांदे पोहे व चहा (Kande Pohe)", "भरली वांगी, भाकरी व वरण (Bharli Vangi, Bhakri)", "दाल तडका व जिरा राईस (Dal Tadka, Rice)", "पालेभाज्या धुवून ठेवणे (Wash Greens)", "सकाळचे दूध उकळणे (Boil Milk)"),
-                ("Wednesday", "मऊ इडली सांबार (Idli Sambar)", "मेथी भाजी, पोळी व भात (Methi Bhaji, Poli)", "मसाला भात व कोशिंबीर (Masala Bhaat)", "कोथिंबीर बारीक चिरणे (Chop Herbs)", "दही विरजण लावणे (Set Curd)"),
-                ("Thursday", "गरम रवा उपमा व चटणी (Upma)", "शेवभाजी, पोळी व भात (Shev Bhaji, Chapati)", "पिठलं भाकरी व ठेचा (Pithla Bhakri)", "हिरवे मटार सोलणे (Peel Peas)", "कांदा-लसूण वाटण करणे (Prep Paste)"),
-                ("Friday", "मेथी पराठा व ताजे दही (Methi Paratha)", "फ्लॉवर रस्सा भाजी व पोळी (Cauliflower Curry)", "दाल खिचडी व साजूक तूप (Dal Khichdi, Ghee)", "आले-लसूण पेस्ट करणे (Ginger Paste)", "चपातीचे पीठ मळणे (Knead Dough)"),
-                ("Saturday", "झणझणीत मिसळ पाव (Misal Pav)", "पनीर मसाला व जिरा राईस (Paneer Masala)", "घरगुती पावभाजी व बटर (Pav Bhaji)", "बटाटे उकडवून ठेवणे (Boil Potatoes)", "टोमॅटो बारीक कापणे (Chop Tomatoes)"),
-                ("Sunday", "कुरकुरीत डोसा व चटणी (Crispy Dosa)", "पुरणपोळी, आमटी व भजी (Puran Poli Feast)", "दही भात व जिरा तडका (Curd Rice)", "सांबार मसाला वाटणे (Grind Spices)", "पोहे स्वच्छ करणे (Clean Poha)")
+                ("Monday", "खमंग भाजणीचे थालीपीठ, लोणी (Thalipeeth)", "भरली वांगी, ज्वारीची भाकरी, वरण (Bharli Vangi, Bhakri)", "दाल तडका, जिरा राईस, कोशिंबीर (Dal Tadka, Jeera Rice)", "उद्याच्या उसळीसाठी मटकी/मूग भिजवणे", "डोसा/इडलीसाठी डाळ-तांदूळ भिजवून वाटणे"),
+                ("Tuesday", "मऊ लुसलुशीत पोहे, चहा (Kande Pohe)", "वरण भात, गव्हाची पोळी, भेंडी भाजी (Varan Bhaat, Bhendi)", "मूग डाळ मऊ खिचडी, कढी, पापड (Moong Khichdi, Kadhi)", "ताज्या पालेभाज्या धुवून सुकवणे", "सकाळचे दूध व्यवस्थित उकळणे"),
+                ("Wednesday", "मऊ इडली, सांबार, खोबरे चटणी (Idli Sambar)", "मेथीची सुकी भाजी, पोळी, वरण भात (Methi Bhaji, Poli)", "मसाला भात, काकडी कोशिंबीर (Masala Bhaat, Koshimbir)", "कोथिंबीर व हिरवी मिरची बारीक चिरणे", "घरचे ताजे दही विरजण लावणे"),
+                ("Thursday", "गरमागरम रवा उपमा, चटणी (Upma Chutney)", "शेवभाजी, गरमागरम पोळी, भात (Shev Bhaji, Chapati)", "पिठलं भाकरी, लसूण चटणी, कांदा (Pithla Bhakri)", "मटार सोलून डब्यात ठेवणे", "कांदा-लसूण वाटण तयार करणे"),
+                ("Friday", "मेथी पराठा, ताजे दही (Methi Paratha)", "फ्लॉवर-बटाटा रस्सा भाजी, पोळी, भात (Cauliflower Curry)", "मसाला दाल खिचडी, साजूक तूप (Dal Khichdi, Ghee)", "आले-लसूण पेस्ट तयार करून ठेवणे", "चपातीचे पीठ मळून ठेवणे"),
+                ("Saturday", "झणझणीत मिसळ पाव, लिंबू (Misal Pav)", "पनीर बटर मसाला, जिरा राईस, पोळी (Paneer Masala)", "घरगुती पावभाजी, बटर पाव (Pav Bhaji, Butter Pav)", "बटाटे उकडवून सोलून ठेवणे", "भाजीसाठी कांदा-टोमॅटो बारीक कापणे"),
+                ("Sunday", "कुरकुरीत डोसा, सांबार, चटणी (Crispy Dosa)", "पुरणपोळी, कटाची आमटी, भजी (Puran Poli, Katachi Amti)", "दही भात, जिरा तडका, लिंबू लोणचे (Curd Rice)", "सांबार मसाला बारीक वाटून घेणे", "पोहे चाळून स्वच्छ करणे")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
@@ -158,7 +192,7 @@ def init_db():
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('forced_display_day', 'AUTO')")
         conn.execute("""
             INSERT OR IGNORE INTO device_telemetry (id, battery_pct, battery_label, voltage, rssi, wifi_strength, last_seen)
-            VALUES (1, 86, '430d', 4.10, -82, 'Good (2/3)', 'Online')
+            VALUES (1, 86, '430d', 4.10, -78, 'Good (2/3)', 'Online')
         """)
         conn.commit()
 
@@ -169,7 +203,7 @@ def get_telemetry():
         row = conn.execute("SELECT * FROM device_telemetry WHERE id = 1").fetchone()
         if row:
             return dict(row)
-        return {"battery_pct": 86, "battery_label": "430d", "voltage": 4.10, "rssi": -82, "wifi_strength": "Good (2/3)", "last_seen": "Online"}
+        return {"battery_pct": 86, "battery_label": "430d", "voltage": 4.10, "rssi": -78, "wifi_strength": "Good (2/3)", "last_seen": "Online"}
 
 def update_telemetry_db(pct, label, v, rssi, wifi_strength):
     now_str = datetime.now(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
@@ -203,14 +237,14 @@ def get_target_menu_data():
     
     if forced_day != "AUTO":
         target_day = forced_day
-        date_str = f"{target_day[:3].upper()}, {now_ist.strftime('%d %b').upper()}"
+        date_str = f"{target_day[:3].upper()}, {now_ist.strftime('%d %b %Y').upper()}"
     else:
         if now_ist.hour >= 21:
             target_date = now_ist + timedelta(days=1)
         else:
             target_date = now_ist
         target_day = target_date.strftime("%A")
-        date_str = target_date.strftime("%a, %d %b").upper()
+        date_str = target_date.strftime("%a, %d %b %Y").upper()
 
     cuisine = get_setting("active_cuisine", "Maharashtrian")
 
@@ -256,7 +290,7 @@ def api_telemetry():
             pct = int(p.get("pct", 86))
             label = str(p.get("batt", "430d"))
             v = float(p.get("v", 4.10))
-            rssi = int(p.get("rssi", -82))
+            rssi = int(p.get("rssi", -78))
             wifi_str = str(p.get("wifi_strength", "Good (2/3)"))
             
             update_telemetry_db(pct, label, v, rssi, wifi_str)
@@ -326,7 +360,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. HIGH-DENSITY SOLID STEM 1-BIT E-PAPER RENDERER
+# 5. PIXEL-PERFECT 1-BIT E-PAPER RENDERER (400x300 Matrix)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -351,116 +385,102 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        f_logo = load_font("latin_bold", 15)
-        f_cuisine = load_font("latin_bold", 10)
-        f_date = load_font("latin_bold", 12)
-        f_badge = load_font("latin_bold", 11)
-        f_time = load_font("latin_bold", 11)
-        f_cat = load_font("latin_bold", 10)
-        f_dish = get_best_font(data["breakfast"] + data["lunch"] + data["dinner"], 13)
-        f_task_hdr = load_font("latin_bold", 10)
-        f_task_body = get_best_font(data["task1"] + data["task2"], 11)
+        f_logo = load_font("latin_bold", 13)
+        f_date = load_font("latin_bold", 11)
+        f_badge = load_font("latin_bold", 10)
+        f_cuisine_strip = load_font("latin_bold", 9.5)
+        f_cat = load_font("latin_bold", 9)
+        f_task_hdr = load_font("latin_bold", 9.5)
 
         # --------------------------------------------------------------------
-        # 1. FIXED 3-ZONE HEADER BAR (y: 0 to 36px)
+        # 1. FIXED TOP HEADER BAR (y: 0 to 28px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 0, CANVAS_W - 1, 36 * SCALE], fill=0)
+        draw.rectangle([0, 0, CANVAS_W - 1, 28 * SCALE], fill=0)
 
-        # Zone A: Left Logo
-        draw.text((10 * SCALE, 10 * SCALE), "MealSync", font=f_logo, fill=255)
+        # Left: Brand Logo
+        draw.text((8 * SCALE, 8 * SCALE), "MealSync", font=f_logo, fill=255)
 
-        # Zone B: Center Inline Cuisine & Date
-        cuisine_label = f"• {data['cuisine'].upper()[:12]}"
-        draw.text((88 * SCALE, 12 * SCALE), cuisine_label, font=f_cuisine, fill=200)
+        # Center: Date
+        d_w = get_text_width(f_date, date_str)
+        date_x = (CANVAS_W - d_w) // 2
+        draw.text((date_x, 8 * SCALE), date_str, font=f_date, fill=255)
 
-        date_x = 180 * SCALE
-        draw.text((date_x, 10 * SCALE), date_str, font=f_date, fill=255)
-
-        # Zone C: Right Hardware Telemetry
-        # Wi-Fi Bars
-        signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = 305 * SCALE, 12 * SCALE
-        draw.rectangle([wifiX, wifiY + (8 * SCALE), wifiX + (2 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + (4 * SCALE), wifiY + (5 * SCALE), wifiX + (6 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + (8 * SCALE), wifiY + (2 * SCALE), wifiX + (10 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 3 else 0)
-
-        # Battery Days Label (e.g., "430d")
-        b_lbl_w = get_text_width(f_badge, batt_str)
-        bat_text_x = (364 * SCALE) - b_lbl_w
-        draw.text((bat_text_x, 10 * SCALE), batt_str, font=f_badge, fill=255)
-
-        # Battery Bar Icon
-        batX, batY = 368 * SCALE, 11 * SCALE
-        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (13 * SCALE)], outline=255, width=SCALE)
-        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (10 * SCALE)], fill=255)
+        # Right: Hardware Telemetry
+        batX, batY = 368 * SCALE, 8 * SCALE
+        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (12 * SCALE)], outline=255, width=SCALE)
+        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (9 * SCALE)], fill=255)
         fill_w = max(0, min(18 * SCALE, int((batt_pct / 100.0) * 18 * SCALE)))
         if fill_w > 0:
-            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (11 * SCALE)], fill=255)
+            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (10 * SCALE)], fill=255)
+
+        b_lbl_w = get_text_width(f_badge, batt_str)
+        bat_text_x = batX - b_lbl_w - (5 * SCALE)
+        draw.text((bat_text_x, 8 * SCALE), batt_str, font=f_badge, fill=255)
+
+        signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
+        wifiX, wifiY = bat_text_x - (16 * SCALE), 8 * SCALE
+        draw.rectangle([wifiX, wifiY + (7 * SCALE), wifiX + (2 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
         # --------------------------------------------------------------------
-        # 2. BAUHAUS RAIL TIMELINE (y: 38 to 216px)
+        # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
         # --------------------------------------------------------------------
-        rail_x = 76 * SCALE
-        draw.line([(rail_x, 42 * SCALE), (rail_x, 212 * SCALE)], fill=0, width=SCALE)
-
-        def draw_cat_pill(label, x_1x, y_1x):
-            tw = get_text_width(f_cat, label)
-            draw.rectangle([x_1x * SCALE, y_1x * SCALE, (x_1x * SCALE) + tw + (8 * SCALE), (y_1x * SCALE) + (14 * SCALE)], fill=0)
-            draw.text(((x_1x * SCALE) + (4 * SCALE), (y_1x * SCALE) + (1 * SCALE)), label, font=f_cat, fill=255)
-
-        # --- BREAKFAST ---
-        draw.text((8 * SCALE, 50 * SCALE), "08:30", font=f_time, fill=0)
-        draw.text((8 * SCALE, 64 * SCALE), "AM", font=f_time, fill=0)
-        draw.ellipse([rail_x - (3 * SCALE), 54 * SCALE, rail_x + (3 * SCALE), 60 * SCALE], fill=0)
-
-        draw_cat_pill("BREAKFAST", 86, 44)
-        draw_wrapped_text(draw, data["breakfast"], 86, 62, 304, f_dish, 16, max_lines=2, fill=0)
-        draw.line([(86 * SCALE, 96 * SCALE), (392 * SCALE, 96 * SCALE)], fill=210, width=SCALE)
-
-        # --- LUNCH ---
-        draw.text((8 * SCALE, 106 * SCALE), "01:00", font=f_time, fill=0)
-        draw.text((8 * SCALE, 120 * SCALE), "PM", font=f_time, fill=0)
-        draw.ellipse([rail_x - (3 * SCALE), 110 * SCALE, rail_x + (3 * SCALE), 116 * SCALE], fill=0)
-
-        draw_cat_pill("LUNCH", 86, 100)
-        draw_wrapped_text(draw, data["lunch"], 86, 118, 304, f_dish, 16, max_lines=2, fill=0)
-        draw.line([(86 * SCALE, 154 * SCALE), (392 * SCALE, 154 * SCALE)], fill=210, width=SCALE)
-
-        # --- DINNER ---
-        draw.text((8 * SCALE, 164 * SCALE), "08:30", font=f_time, fill=0)
-        draw.text((8 * SCALE, 178 * SCALE), "PM", font=f_time, fill=0)
-        draw.ellipse([rail_x - (3 * SCALE), 168 * SCALE, rail_x + (3 * SCALE), 174 * SCALE], fill=0)
-
-        draw_cat_pill("DINNER", 86, 158)
-        draw_wrapped_text(draw, data["dinner"], 86, 176, 304, f_dish, 16, max_lines=2, fill=0)
-
-        # Section Divider
-        draw.line([(0, 218 * SCALE), (CANVAS_W, 218 * SCALE)], fill=0, width=2 * SCALE)
+        draw.rectangle([0, 28 * SCALE, CANVAS_W - 1, 44 * SCALE], fill=30)
+        cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
+        draw.text((8 * SCALE, 30 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
 
         # --------------------------------------------------------------------
-        # 3. DUAL-COLUMN TASK CARDS (y: 222 to 294px)
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 220px)
+        # --------------------------------------------------------------------
+        rail_x = 16 * SCALE
+        draw.line([(rail_x, 52 * SCALE), (rail_x, 208 * SCALE)], fill=0, width=SCALE)
+
+        def draw_meal_row(category, dish_text, y_start, dot_y, row_h):
+            # Timeline Dot
+            draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
+
+            # Category Pill
+            cat_w = get_text_width(f_cat, category)
+            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (8 * SCALE), (y_start * SCALE) + (13 * SCALE)], fill=0)
+            draw.text(((28 * SCALE) + (4 * SCALE), (y_start * SCALE) + (1 * SCALE)), category, font=f_cat, fill=255)
+
+            # Dish Text
+            draw_autofit_text(draw, dish_text, 28, y_start + 16, 364, row_h - 18, max_size=15, min_size=11, max_lines=2, fill=0)
+            
+            div_y = y_start + row_h
+            draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
+
+        draw_meal_row("BREAKFAST", data["breakfast"], 48, 54, 54)
+        draw_meal_row("LUNCH", data["lunch"], 106, 112, 54)
+        draw_meal_row("DINNER", data["dinner"], 164, 170, 54)
+
+        # Section Divider before Tasks
+        draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
+
+        # --------------------------------------------------------------------
+        # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
-        draw.rectangle([6 * SCALE, 222 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([6 * SCALE, 222 * SCALE, 196 * SCALE, 238 * SCALE], fill=0)
-        draw.text((10 * SCALE, 224 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
-        draw.rectangle([12 * SCALE, 246 * SCALE, 22 * SCALE, 256 * SCALE], outline=0, width=SCALE)
-        draw_wrapped_text(draw, data["task1"], 26, 244, 166, f_task_body, 14, max_lines=3, fill=0)
+        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 241 * SCALE], fill=0)
+        draw.text((10 * SCALE, 227 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
+        draw.rectangle([12 * SCALE, 248 * SCALE, 22 * SCALE, 258 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task1"], 26, 245, 166, 46, max_size=12, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
-        draw.rectangle([202 * SCALE, 222 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([202 * SCALE, 222 * SCALE, 394 * SCALE, 238 * SCALE], fill=0)
-        draw.text((206 * SCALE, 224 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
-        draw.rectangle([208 * SCALE, 246 * SCALE, 218 * SCALE, 256 * SCALE], outline=0, width=SCALE)
-        draw_wrapped_text(draw, data["task2"], 222, 244, 168, f_task_body, 14, max_lines=3, fill=0)
+        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 241 * SCALE], fill=0)
+        draw.text((206 * SCALE, 227 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
+        draw.rectangle([208 * SCALE, 248 * SCALE, 218 * SCALE, 258 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task2"], 222, 245, 168, 46, max_size=12, min_size=10, max_lines=3, fill=0)
 
-        # Outer Frame
+        # Perimeter Frame
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # Morphological Stem Darkening Filter to preserve thin ligatures & matras
-        # Downscale via LANCZOS, then threshold with solid dense black preservation
+        # Downscale & 1-Bit Thresholding
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 168 else 0, mode="1")
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 165 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
@@ -496,7 +516,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized (Industrial HD 1-Bit Engine)</div>
+            <div class="status">● Active & Synchronized</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
