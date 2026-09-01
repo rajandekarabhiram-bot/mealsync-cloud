@@ -22,6 +22,9 @@ SCALE = 2
 CANVAS_W = PANEL_WIDTH * SCALE   # 800px
 CANVAS_H = PANEL_HEIGHT * SCALE  # 600px
 
+# ============================================================================
+# 1. CORS & HEADERS
+# ============================================================================
 @app.after_request
 def add_cors_and_cache_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -31,17 +34,17 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# FONT DOWNLOADER & MULTI-SCRIPT TOKENIZER
+# 2. HEAVY-WEIGHT FONT ROSTER (Inter-Black + Noto ExtraBold)
 # ============================================================================
 FONT_FILES = {
-    "latin": "DejaVuSans-Bold.ttf",
-    "devanagari": "NotoSansDevanagari-Bold.ttf",
+    "latin": "Inter-ExtraBold.ttf",
+    "devanagari": "NotoSansDevanagari-ExtraBold.ttf",
     "gujarati": "NotoSansGujarati-Bold.ttf"
 }
 
 FONT_DOWNLOAD_URLS = {
-    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
-    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+    "Inter-ExtraBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-ExtraBold.ttf",
+    "NotoSansDevanagari-ExtraBold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-ExtraBold.ttf",
     "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
 }
 
@@ -54,7 +57,7 @@ def verify_and_fetch_fonts():
                     with open(filename, "wb") as f:
                         f.write(res.content)
             except Exception as e:
-                print(f"[FONT ERROR] {filename}: {e}")
+                print(f"[FONT ENGINE] Error downloading {filename}: {e}")
 
 verify_and_fetch_fonts()
 
@@ -68,7 +71,7 @@ def classify_script(text_segment):
     return "latin"
 
 def get_font_instance(script_key, size_1x):
-    font_file = FONT_FILES.get(script_key, "DejaVuSans-Bold.ttf")
+    font_file = FONT_FILES.get(script_key, "Inter-ExtraBold.ttf")
     target_px = int(size_1x * SCALE)
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
@@ -76,9 +79,11 @@ def get_font_instance(script_key, size_1x):
     except Exception:
         pass
     try:
-        return ImageFont.truetype("DejaVuSans-Bold.ttf", target_px)
+        if os.path.exists("Inter-ExtraBold.ttf"):
+            return ImageFont.truetype("Inter-ExtraBold.ttf", target_px)
     except Exception:
-        return ImageFont.load_default()
+        pass
+    return ImageFont.load_default()
 
 def measure_token(token, size_1x):
     script = classify_script(token)
@@ -87,14 +92,19 @@ def measure_token(token, size_1x):
         bbox = font.getbbox(token)
         return (bbox[2] - bbox[0]), font
     except Exception:
-        return len(token) * int(size_1x * SCALE * 0.6), font
+        return len(token) * int(size_1x * SCALE * 0.65), font
 
+# ============================================================================
+# 3. HIGH-DENSITY TOKENIZED MULTI-SCRIPT LINE WRAPPER
+# ============================================================================
 def segment_and_wrap(text, max_w_px, size_1x):
     tokens = text.strip().split()
     if not tokens:
         return []
+    
     space_w, _ = measure_token(" ", size_1x)
-    lines, current_line = [], []
+    lines = []
+    current_line = []
     current_w = 0
 
     for token in tokens:
@@ -115,8 +125,7 @@ def segment_and_wrap(text, max_w_px, size_1x):
         lines.append(current_line)
     return lines
 
-# Enhanced Font-Size Engine with Increased Minimums (16px - 22px)
-def draw_large_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max_size=22, min_size=16, max_lines=2, fill=0):
+def draw_large_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max_size=21, min_size=17, max_lines=2, fill=0):
     text = str(text).strip()
     if not text:
         return
@@ -154,7 +163,7 @@ def draw_large_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max
         curr_y += line_height
 
 # ============================================================================
-# DATABASE & DATA MANAGEMENT
+# 4. DATABASE & STATE REPOSITORY
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -261,6 +270,9 @@ def get_target_menu_data():
             data = {"day": target_day, "cuisine": cuisine, "breakfast": "—", "lunch": "—", "dinner": "—", "task1": "—", "task2": "—"}
     return date_str, data
 
+# ============================================================================
+# 5. REST APIS & HARDWARE SYNC
+# ============================================================================
 @app.route('/hash', methods=['GET'])
 def get_content_hash():
     global SYNC_VERSION
@@ -329,7 +341,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# HD 1-BIT RENDERER (Clean High-Contrast Large Fonts)
+# 6. CRISP E-PAPER 1-BIT RENDERER (Clean High-Contrast Lines)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -350,7 +362,7 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # 2x Master Canvas
+        # 2x Master Supersampled Canvas
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
@@ -401,8 +413,8 @@ def render_display():
             draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (8 * SCALE), (y_start * SCALE) + (14 * SCALE)], fill=0)
             draw.text(((28 * SCALE) + (4 * SCALE), (y_start * SCALE) + (1 * SCALE)), category, font=f_cat, fill=255)
 
-            # Renders between 17px and 22px
-            draw_large_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=21, min_size=16, max_lines=2, fill=0)
+            # High-legibility bounds: 17px - 21px
+            draw_large_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=21, min_size=17, max_lines=2, fill=0)
             
             div_y = y_start + row_h
             draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
@@ -419,19 +431,21 @@ def render_display():
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 241 * SCALE], fill=0)
         draw.text((10 * SCALE, 227 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
         draw.rectangle([12 * SCALE, 248 * SCALE, 22 * SCALE, 258 * SCALE], outline=0, width=SCALE)
-        draw_large_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=15, min_size=12, max_lines=3, fill=0)
+        draw_large_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=15, min_size=13, max_lines=3, fill=0)
 
         draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 241 * SCALE], fill=0)
         draw.text((206 * SCALE, 227 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
         draw.rectangle([208 * SCALE, 248 * SCALE, 218 * SCALE, 258 * SCALE], outline=0, width=SCALE)
-        draw_large_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=15, min_size=12, max_lines=3, fill=0)
+        draw_large_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=15, min_size=13, max_lines=3, fill=0)
 
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # High-order Lanczos Downscale to 400x300
+        # Downscale via LANCZOS
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
+        
+        # High-Contrast 1-bit curve: Preserves thin English stems by setting threshold to 210
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 210 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
@@ -464,7 +478,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <p>1-Bit Multi-Script Rasterizer (SSD1683 / 400×300):</p>
+            <p>1-Bit Multi-Script High-Legibility Rasterizer (SSD1683 / 400×300):</p>
             <img src="/display.bmp" alt="Live E-Paper Stream" />
         </div>
     </body>
