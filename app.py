@@ -76,7 +76,6 @@ def get_font_instance(script_key, size_px):
             return ImageFont.truetype(font_file, int(size_px))
     except Exception:
         pass
-    # Linux system fallback font paths
     system_fallbacks = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -343,7 +342,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 6. DIRECT 1-BIT MONOCHROME E-PAPER RENDERER (400x300 Matrix)
+# 6. ENLARGED 1-BIT MONOCHROME E-PAPER RENDERER (400x300 Matrix)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -368,99 +367,99 @@ def render_display():
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        f_logo = get_font_instance("latin_bold", 14)
-        f_date = get_font_instance("latin_bold", 11.5)
-        f_badge = get_font_instance("latin_bold", 10.5)
-        f_cuisine_strip = get_font_instance("latin_bold", 9.5)
-        f_cat = get_font_instance("latin_bold", 9.5)
-        f_task_hdr = get_font_instance("latin_bold", 10)
+        # Increased Font Base Sizes
+        f_logo = get_font_instance("latin_bold", 16)
+        f_date = get_font_instance("latin_bold", 13)
+        f_badge = get_font_instance("latin_bold", 12)
+        f_cuisine_strip = get_font_instance("latin_bold", 11)
+        f_cat = get_font_instance("latin_bold", 11)
+        f_task_hdr = get_font_instance("latin_bold", 11.5)
 
         # --------------------------------------------------------------------
-        # 1. TOP HEADER (y: 0 to 28px)
+        # 1. ENLARGED TOP HEADER (y: 0 to 32px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 0, PANEL_WIDTH - 1, 28], fill=0)
-        draw.text((8, 7), "MealSync", font=f_logo, fill=1)
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, 32], fill=0)
+        draw.text((8, 8), "MealSync", font=f_logo, fill=1)
 
-        d_w, _ = measure_token(date_str, 11.5)
-        draw.text(((PANEL_WIDTH - d_w) // 2, 7), date_str, font=f_date, fill=1)
+        d_w, _ = measure_token(date_str, 13)
+        draw.text(((PANEL_WIDTH - d_w) // 2, 9), date_str, font=f_date, fill=1)
 
-        # Battery Icon + Days Text + Wi-Fi
-        batX, batY = 368, 8
-        draw.rectangle([batX, batY, batX + 22, batY + 12], outline=1, width=1)
-        draw.rectangle([batX + 22, batY + 3, batX + 24, batY + 9], fill=1)
-        fill_w = max(0, min(18, int((batt_pct / 100.0) * 18)))
+        # Enlarged Battery Icon + Days Text + Thick Wi-Fi
+        batX, batY = 364, 9
+        draw.rectangle([batX, batY, batX + 26, batY + 14], outline=1, width=1)
+        draw.rectangle([batX + 26, batY + 4, batX + 28, batY + 10], fill=1)
+        fill_w = max(0, min(22, int((batt_pct / 100.0) * 22)))
         if fill_w > 0:
-            draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 10], fill=1)
+            draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=1)
 
-        b_lbl_w, _ = measure_token(batt_str, 10.5)
-        bat_text_x = batX - b_lbl_w - 5
-        draw.text((bat_text_x, 7), batt_str, font=f_badge, fill=1)
+        b_lbl_w, _ = measure_token(batt_str, 12)
+        bat_text_x = batX - b_lbl_w - 6
+        draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = bat_text_x - 16, 8
-        draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 11], fill=1 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 8, wifiY + 1, wifiX + 10, wifiY + 11], fill=1 if signal_bars >= 3 else 0)
+        wifiX, wifiY = bat_text_x - 20, 9
+        draw.rectangle([wifiX, wifiY + 9, wifiX + 3, wifiY + 14], fill=1 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 5, wifiY + 5, wifiX + 8, wifiY + 14], fill=1 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 10, wifiY + 0, wifiX + 13, wifiY + 14], fill=1 if signal_bars >= 3 else 0)
 
         # --------------------------------------------------------------------
-        # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
+        # 2. CUISINE SUB-HEADER STRIP (y: 32 to 50px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 28, PANEL_WIDTH - 1, 44], fill=0)
+        draw.rectangle([0, 32, PANEL_WIDTH - 1, 50], fill=0)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
-        draw.text((8, 30), cuisine_full, font=f_cuisine_strip, fill=1)
+        draw.text((8, 35), cuisine_full, font=f_cuisine_strip, fill=1)
 
         # --------------------------------------------------------------------
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEAL ROWS (y: 46 to 222px)
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEAL ROWS (y: 52 to 226px)
         # --------------------------------------------------------------------
         rail_x = 16
-        draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
+        draw.line([(rail_x, 58), (rail_x, 214)], fill=0, width=1)
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
             # Timeline Dot Node
             draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
-            # Solid Black Inverted Category Badge
-            cat_w, _ = measure_token(category, 9.5)
-            draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
-            draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
+            # Solid Black Inverted Category Badge (Enlarged)
+            cat_w, _ = measure_token(category, 11)
+            draw.rectangle([28, y_start, 28 + cat_w + 10, y_start + 16], fill=0)
+            draw.text((28 + 5, y_start + 1), category, font=f_cat, fill=1)
 
-            # Native Multilingual Text Rendering (No Tofu Boxes)
-            draw_native_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=14.5, min_size=11, max_lines=2, fill=0)
+            # Native Multilingual Text Rendering (Auto-scaling 15.5px to 11px)
+            draw_native_multilingual_text(draw, dish_text, 28, y_start + 20, 364, row_h - 22, max_size=15.5, min_size=11, max_lines=2, fill=0)
             
             # Row Divider Line
             div_y = y_start + row_h
             draw.line([(28, div_y), (PANEL_WIDTH - 8, div_y)], fill=0, width=1)
 
-        draw_meal_slot("BREAKFAST", data["breakfast"], 48, 54, 54)
-        draw_meal_slot("LUNCH", data["lunch"], 106, 112, 54)
-        draw_meal_slot("DINNER", data["dinner"], 164, 170, 54)
+        draw_meal_slot("BREAKFAST", data["breakfast"], 52, 60, 58)
+        draw_meal_slot("LUNCH", data["lunch"], 110, 118, 58)
+        draw_meal_slot("DINNER", data["dinner"], 168, 176, 58)
 
         # Section Divider before Tasks
-        draw.line([(0, 222), (PANEL_WIDTH, 222)], fill=0, width=2)
+        draw.line([(0, 226), (PANEL_WIDTH, 226)], fill=0, width=2)
 
         # --------------------------------------------------------------------
-        # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
+        # 4. DUAL-COLUMN TASK CARDS (y: 230 to 296px)
         # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
-        draw.rectangle([6, 226, 196, 294], outline=0, width=1)
-        draw.rectangle([6, 226, 196, 241], fill=0)
-        draw.text((10, 227), "TODAY'S PREP", font=f_task_hdr, fill=1)
-        draw.rectangle([12, 248, 22, 258], outline=0, width=1)
-        draw_native_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw.rectangle([6, 230, 196, 296], outline=0, width=1)
+        draw.rectangle([6, 230, 196, 247], fill=0)
+        draw.text((10, 232), "TODAY'S PREP", font=f_task_hdr, fill=1)
+        draw.rectangle([12, 254, 22, 264], outline=0, width=1)
+        draw_native_multilingual_text(draw, data["task1"], 26, 251, 166, 42, max_size=12.5, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
-        draw.rectangle([202, 226, 394, 294], outline=0, width=1)
-        draw.rectangle([202, 226, 394, 241], fill=0)
-        draw.text((206, 227), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
-        draw.rectangle([208, 248, 218, 258], outline=0, width=1)
-        draw_native_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw.rectangle([202, 230, 394, 296], outline=0, width=1)
+        draw.rectangle([202, 230, 394, 247], fill=0)
+        draw.text((206, 232), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
+        draw.rectangle([208, 254, 218, 264], outline=0, width=1)
+        draw_native_multilingual_text(draw, data["task2"], 222, 251, 168, 42, max_size=12.5, min_size=10, max_lines=3, fill=0)
 
         # Perimeter Frame
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
         # Correct Byte Alignment for SSD1683 GxEPD2 driver
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
-            # EPD active-low bitmap byte format
             img_epd = ImageOps.invert(img.convert("L")).point(lambda p: 255 if p > 128 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
