@@ -332,7 +332,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. DUAL-COLUMN TASK LAYOUT BITMAP RENDERER (400x300 Matrix)
+# 5. BAUHAUS RAIL BITMAP RENDERER (400x300 Matrix)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -369,7 +369,7 @@ def get_wrapped_lines(text, font, max_width_2x):
         lines.append(" ".join(curr))
     return lines
 
-def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=17, min_size=11, max_lines=2, fill_color=0):
+def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=16, min_size=11, max_lines=2, fill_color=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -377,7 +377,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     font_file = get_font_for_text(text_str)
     selected_font = None
     selected_lines = []
-    line_mult = 1.28
+    line_mult = 1.26
 
     max_w_2x = max_w_1x * SCALE
     max_h_2x = max_h_1x * SCALE
@@ -396,7 +396,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
         selected_font = safe_font(font_file, min_size)
         selected_lines = get_wrapped_lines(text_str, selected_font, max_w_2x)[:max_lines]
 
-    line_h = int((selected_font.size) * line_mult) if hasattr(selected_font, 'size') else 28
+    line_h = int((selected_font.size) * line_mult) if hasattr(selected_font, 'size') else 26
     curr_y = y_1x * SCALE
     for line in selected_lines:
         draw.text((x_1x * SCALE, curr_y), line, font=selected_font, fill=fill_color)
@@ -424,38 +424,37 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        font_logo = safe_font(FONT_MAP["english"], 17)
+        font_logo = safe_font(FONT_MAP["english"], 16)
         font_date = safe_font(FONT_MAP["english"], 13)
         font_cuisine = safe_font(FONT_MAP["english_sub"], 11)
         font_badge = safe_font(FONT_MAP["english_sub"], 12)
-        font_sidebar = safe_font(FONT_MAP["english"], 14)
+        font_time = safe_font(FONT_MAP["english"], 11)
+        font_cat = safe_font(FONT_MAP["english_sub"], 10)
         font_subhead = safe_font(FONT_MAP["english_sub"], 10)
 
         # 1. TOP HEADER (Solid Black)
-        draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
+        draw.rectangle([0, 0, CANVAS_W - 1, 36 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         
-        # Logo
+        # Logo + Cuisine
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
-        
-        # Active Cuisine Sub-Label
         cuisine_label = f"• {data['cuisine'].upper()}"
-        draw.text((92 * SCALE, 12 * SCALE), cuisine_label, font=font_cuisine, fill=200)
+        draw.text((88 * SCALE, 12 * SCALE), cuisine_label, font=font_cuisine, fill=200)
 
         # Centered Date
         date_w = get_text_width(font_date, date_str)
         date_x = (CANVAS_W - date_w) // 2
         draw.text((date_x, 10 * SCALE), date_str, font=font_date, fill=255)
 
-        # Wi-Fi Indicator
+        # Wi-Fi 3-Bar Signal Ladder
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = 320 * SCALE, 13 * SCALE
+        wifiX, wifiY = 320 * SCALE, 12 * SCALE
         draw.rectangle([wifiX + 3 * SCALE, wifiY + 8 * SCALE, wifiX + 5 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + 7 * SCALE, wifiY + 5 * SCALE, wifiX + 9 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + 11 * SCALE, wifiY + 2 * SCALE, wifiX + 13 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
 
-        # Battery Indicator
-        batX, batY = 360 * SCALE, 12 * SCALE
+        # Battery Bar & Badge
+        batX, batY = 360 * SCALE, 11 * SCALE
         draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
         draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
 
@@ -464,40 +463,49 @@ def render_display():
             draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 12 * SCALE], fill=255)
 
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 6 * SCALE, 11 * SCALE), batt_str, font=font_badge, fill=255)
+        draw.text((batX - badge_w - 6 * SCALE, 10 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # 2. SIDEBAR FOR MEALS
-        sidebar_w = 114 * SCALE
-        draw.rectangle([0, 38 * SCALE, sidebar_w, 226 * SCALE], fill=0)
-        draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_sidebar, fill=255)
-        draw.text((10 * SCALE, 112 * SCALE), "LUNCH", font=font_sidebar, fill=255)
-        draw.text((10 * SCALE, 172 * SCALE), "DINNER", font=font_sidebar, fill=255)
+        # 2. BAUHAUS TIMELINE RAIL (x: 82px)
+        rail_x = 82 * SCALE
+        draw.line([(rail_x, 44 * SCALE), (rail_x, 218 * SCALE)], fill=0, width=SCALE)
 
-        for y_div in [96, 156]:
-            draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
-            draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
+        # Slot 1: Breakfast (y: 42 to 96)
+        draw.text((12 * SCALE, 46 * SCALE), "08:30 AM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 50 * SCALE, rail_x + 3 * SCALE, 56 * SCALE], fill=0)
+        draw.text((94 * SCALE, 44 * SCALE), "BREAKFAST", font=font_cat, fill=100)
+        draw_autofit_text(draw, data["breakfast"], 94, 58, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
+        draw.line([(94 * SCALE, 96 * SCALE), (CANVAS_W - 10 * SCALE, 96 * SCALE)], fill=200, width=SCALE)
 
-        draw.line([(0, 226 * SCALE), (CANVAS_W, 226 * SCALE)], fill=0, width=2 * SCALE)
+        # Slot 2: Lunch (y: 102 to 156)
+        draw.text((12 * SCALE, 106 * SCALE), "01:00 PM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 110 * SCALE, rail_x + 3 * SCALE, 116 * SCALE], fill=0)
+        draw.text((94 * SCALE, 104 * SCALE), "LUNCH", font=font_cat, fill=100)
+        draw_autofit_text(draw, data["lunch"], 94, 118, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
+        draw.line([(94 * SCALE, 156 * SCALE), (CANVAS_W - 10 * SCALE, 156 * SCALE)], fill=200, width=SCALE)
 
-        # Meals Text
-        draw_autofit_text(draw, data["breakfast"], 124, 46, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["lunch"], 124, 106, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["dinner"], 124, 166, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
+        # Slot 3: Dinner (y: 162 to 218)
+        draw.text((12 * SCALE, 166 * SCALE), "08:30 PM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 170 * SCALE, rail_x + 3 * SCALE, 176 * SCALE], fill=0)
+        draw.text((94 * SCALE, 164 * SCALE), "DINNER", font=font_cat, fill=100)
+        draw_autofit_text(draw, data["dinner"], 94, 178, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
 
-        # 3. DUAL-COLUMN ADVANCE PREP & TASKS
-        # Column 1: Today's Fresh Prep
-        draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 246 * SCALE], fill=0)
-        draw.text((14 * SCALE, 234 * SCALE), "TODAY'S FRESH PREP", font=font_subhead, fill=255)
-        draw.rectangle([16 * SCALE, 255 * SCALE, 26 * SCALE, 265 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task1"], 30, 250, 164, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # Section Divider before Tasks
+        draw.line([(0, 224 * SCALE), (CANVAS_W, 224 * SCALE)], fill=0, width=2 * SCALE)
 
-        # Column 2: Overnight Prep for Tomorrow
-        draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 246 * SCALE], fill=0)
-        draw.text((208 * SCALE, 234 * SCALE), "OVERNIGHT / ADVANCE PREP", font=font_subhead, fill=255)
-        draw.rectangle([210 * SCALE, 255 * SCALE, 220 * SCALE, 265 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task2"], 224, 250, 162, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # 3. DUAL-COLUMN ADVANCE PREP & TASKS (y: 228 to 294)
+        # Column 1: Today's Prep
+        draw.rectangle([10 * SCALE, 228 * SCALE, 198 * SCALE, 292 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([10 * SCALE, 228 * SCALE, 198 * SCALE, 242 * SCALE], fill=0)
+        draw.text((14 * SCALE, 230 * SCALE), "TODAY'S PREP", font=font_subhead, fill=255)
+        draw.rectangle([16 * SCALE, 252 * SCALE, 26 * SCALE, 262 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task1"], 30, 246, 164, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
+
+        # Column 2: Tomorrow's Prep
+        draw.rectangle([204 * SCALE, 228 * SCALE, 390 * SCALE, 292 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([204 * SCALE, 228 * SCALE, 390 * SCALE, 242 * SCALE], fill=0)
+        draw.text((208 * SCALE, 230 * SCALE), "TOMORROW'S PREP", font=font_subhead, fill=255)
+        draw.rectangle([210 * SCALE, 252 * SCALE, 220 * SCALE, 262 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task2"], 224, 246, 162, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
         # Downscale & 1-bit monochrome conversion
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
@@ -538,7 +546,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized (Dual-Column Layout)</div>
+            <div class="status">● Active & Synchronized (Bauhaus Rail Layout)</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
