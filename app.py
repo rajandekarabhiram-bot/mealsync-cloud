@@ -7,7 +7,7 @@ import requests
 import traceback
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file, render_template_string, jsonify
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -34,21 +34,19 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. DUAL-ENGINE FONT LOADER
+# 2. UNIVERSAL DUAL-SCRIPT FONT ENGINE (No Missing Tofu Boxes)
 # ============================================================================
 FONT_FILES = {
-    "english_heavy": "Inter-Bold.ttf",
-    "english_medium": "Inter-SemiBold.ttf",
-    "devanagari_heavy": "NotoSansDevanagari-ExtraBold.ttf",
-    "devanagari_bold": "NotoSansDevanagari-Bold.ttf"
+    "universal_bold": "DejaVuSans-Bold.ttf",
+    "devanagari_bold": "NotoSansDevanagari-Bold.ttf",
+    "devanagari_heavy": "NotoSansDevanagari-ExtraBold.ttf"
 }
 
 def ensure_fonts():
     font_urls = {
-        "Inter-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-Bold.ttf",
-        "Inter-SemiBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-SemiBold.ttf",
-        "NotoSansDevanagari-ExtraBold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-ExtraBold.ttf",
-        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
+        "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
+        "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+        "NotoSansDevanagari-ExtraBold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-ExtraBold.ttf"
     }
     for filename, url in font_urls.items():
         if not os.path.exists(filename) or os.path.getsize(filename) < 2000:
@@ -63,7 +61,7 @@ def ensure_fonts():
 ensure_fonts()
 
 def load_font(name, size_1x):
-    filename = FONT_FILES.get(name, "Inter-Bold.ttf")
+    filename = FONT_FILES.get(name, "DejaVuSans-Bold.ttf")
     try:
         if os.path.exists(filename) and os.path.getsize(filename) > 2000:
             return ImageFont.truetype(filename, int(size_1x * SCALE))
@@ -87,7 +85,6 @@ def get_text_width(font, text):
     except Exception:
         return len(str(text)) * (8 * SCALE)
 
-# Dual-Engine Segmented Auto-fit text drawer
 def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=18, min_size=11, max_lines=2, fill=0):
     text_str = str(text_str).strip()
     if not text_str:
@@ -96,12 +93,15 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     words = text_str.split()
     max_w_px = max_w_1x * SCALE
     max_h_px = max_h_1x * SCALE
+
     selected_font = None
     selected_lines = []
     line_mult = 1.30
 
+    # Auto-scaling loop
     for size in range(max_size, min_size - 1, -1):
-        test_font = load_font("devanagari_heavy", size) if is_devanagari(text_str) else load_font("english_heavy", size)
+        # Use Devanagari bold for regional text; fallback gracefully to universal Latin
+        test_font = load_font("devanagari_bold", size) if is_devanagari(text_str) else load_font("universal_bold", size)
         lines, curr = [], []
         for w in words:
             test_line = " ".join(curr + [w])
@@ -124,7 +124,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
             break
 
     if not selected_font:
-        selected_font = load_font("devanagari_bold", min_size) if is_devanagari(text_str) else load_font("english_heavy", min_size)
+        selected_font = load_font("devanagari_bold", min_size) if is_devanagari(text_str) else load_font("universal_bold", min_size)
         lines, curr = [], []
         for w in words:
             test_line = " ".join(curr + [w])
@@ -141,7 +141,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
             lines.append(" ".join(curr))
         selected_lines = lines[:max_lines]
 
-    line_h = int((selected_font.size if hasattr(selected_font, 'size') else (14 * SCALE)) * 1.15)
+    line_h = int((selected_font.size if hasattr(selected_font, 'size') else (14 * SCALE)) * 1.18)
     curr_y = y_1x * SCALE
     for line in selected_lines:
         draw.text((x_1x * SCALE, curr_y), line, font=selected_font, fill=fill)
@@ -357,7 +357,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. DUAL-ENGINE 1-BIT SUPERSAMPLED RENDERER WITH MORPHOLOGICAL DILATION
+# 5. CRISP 1-BIT E-PAPER RENDERER (Clean High-Contrast Lines)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -382,14 +382,16 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        f_logo = load_font("english_heavy", 15)
-        f_date = load_font("english_heavy", 12)
-        f_badge = load_font("english_heavy", 11)
-        f_cuisine_strip = load_font("english_heavy", 10.5)
-        f_cat = load_font("english_heavy", 10.5)
-        f_task_hdr = load_font("english_heavy", 10.5)
+        f_logo = load_font("universal_bold", 15)
+        f_date = load_font("universal_bold", 12)
+        f_badge = load_font("universal_bold", 11)
+        f_cuisine_strip = load_font("universal_bold", 10.5)
+        f_cat = load_font("universal_bold", 10.5)
+        f_task_hdr = load_font("universal_bold", 10.5)
 
+        # --------------------------------------------------------------------
         # 1. TOP HEADER (y: 0 to 30px)
+        # --------------------------------------------------------------------
         draw.rectangle([0, 0, CANVAS_W - 1, 30 * SCALE], fill=0)
 
         # Left: Brand Logo
@@ -418,24 +420,32 @@ def render_display():
         draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
+        # --------------------------------------------------------------------
         # 2. CUISINE SUB-HEADER STRIP (y: 30 to 46px)
+        # --------------------------------------------------------------------
         draw.rectangle([0, 30 * SCALE, CANVAS_W - 1, 46 * SCALE], fill=30)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
         draw.text((8 * SCALE, 32 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
 
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEAL ROWS (y: 48 to 222px)
+        # --------------------------------------------------------------------
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 48 to 222px)
+        # --------------------------------------------------------------------
         rail_x = 16 * SCALE
         draw.line([(rail_x, 54 * SCALE), (rail_x, 210 * SCALE)], fill=0, width=SCALE)
 
         def draw_meal_row(category, dish_text, y_start, dot_y, row_h):
+            # Timeline Dot Node
             draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
 
+            # Solid Black Category Tag Pill
             cat_w = get_text_width(f_cat, category)
             draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (10 * SCALE), (y_start * SCALE) + (15 * SCALE)], fill=0)
             draw.text(((28 * SCALE) + (5 * SCALE), (y_start * SCALE) + (2 * SCALE)), category, font=f_cat, fill=255)
 
+            # Autofit Dish Text
             draw_autofit_text(draw, dish_text, 28, y_start + 18, 364, row_h - 20, max_size=18, min_size=12, max_lines=2, fill=0)
             
+            # Row Divider Line
             div_y = y_start + row_h
             draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
 
@@ -446,7 +456,9 @@ def render_display():
         # Section Divider before Tasks
         draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
 
+        # --------------------------------------------------------------------
         # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
+        # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 242 * SCALE], fill=0)
@@ -464,12 +476,9 @@ def render_display():
         # Perimeter Frame
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # Morphological Stem Darkening: Dilates thin strokes so lines never break
-        img_darkened = img_2x.filter(ImageFilter.MinFilter(3))
-        # High-order LANCZOS Resampling
-        img_downscaled = img_darkened.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        # Contrast Thresholding
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 180 else 0, mode="1")
+        # Clean Lanczos Resampling directly to 1-Bit Buffer
+        img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
@@ -505,7 +514,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized (Dual-Engine HD Font Processor)</div>
+            <div class="status">● Active & Synchronized</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
