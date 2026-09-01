@@ -34,19 +34,33 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. UNIVERSAL DUAL-SCRIPT FONT ENGINE (No Missing Tofu Boxes)
+# 2. COMPLETE REGIONAL SCRIPT ENGINE (Gujarati, Tamil, Telugu, Hindi, etc.)
 # ============================================================================
-FONT_FILES = {
-    "universal_bold": "DejaVuSans-Bold.ttf",
-    "devanagari_bold": "NotoSansDevanagari-Bold.ttf",
-    "devanagari_heavy": "NotoSansDevanagari-ExtraBold.ttf"
+FONT_MAP = {
+    "english": "Inter-Bold.ttf",
+    "devanagari": "NotoSansDevanagari-Bold.ttf",
+    "gujarati": "NotoSansGujarati-Bold.ttf",
+    "gurmukhi": "NotoSansGurmukhi-Bold.ttf",
+    "bengali": "NotoSansBengali-Bold.ttf",
+    "tamil": "NotoSansTamil-Bold.ttf",
+    "telugu": "NotoSansTelugu-Bold.ttf",
+    "kannada": "NotoSansKannada-Bold.ttf",
+    "malayalam": "NotoSansMalayalam-Bold.ttf",
+    "odia": "NotoSansOriya-Bold.ttf",
 }
 
 def ensure_fonts():
     font_urls = {
-        "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
+        "Inter-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-Bold.ttf",
         "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
-        "NotoSansDevanagari-ExtraBold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-ExtraBold.ttf"
+        "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf",
+        "NotoSansGurmukhi-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGurmukhi/NotoSansGurmukhi-Bold.ttf",
+        "NotoSansBengali-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansBengali/NotoSansBengali-Bold.ttf",
+        "NotoSansTamil-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansTamil/NotoSansTamil-Bold.ttf",
+        "NotoSansTelugu-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansTelugu/NotoSansTelugu-Bold.ttf",
+        "NotoSansKannada-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansKannada/NotoSansKannada-Bold.ttf",
+        "NotoSansMalayalam-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansMalayalam/NotoSansMalayalam-Bold.ttf",
+        "NotoSansOriya-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansOriya/NotoSansOriya-Bold.ttf"
     }
     for filename, url in font_urls.items():
         if not os.path.exists(filename) or os.path.getsize(filename) < 2000:
@@ -60,8 +74,21 @@ def ensure_fonts():
 
 ensure_fonts()
 
-def load_font(name, size_1x):
-    filename = FONT_FILES.get(name, "DejaVuSans-Bold.ttf")
+def detect_font_for_text(text):
+    for char in str(text):
+        cp = ord(char)
+        if 0x0900 <= cp <= 0x097F: return FONT_MAP["devanagari"]
+        if 0x0A80 <= cp <= 0x0AFF: return FONT_MAP["gujarati"]
+        if 0x0A00 <= cp <= 0x0A7F: return FONT_MAP["gurmukhi"]
+        if 0x0980 <= cp <= 0x09FF: return FONT_MAP["bengali"]
+        if 0x0B80 <= cp <= 0x0BFF: return FONT_MAP["tamil"]
+        if 0x0C00 <= cp <= 0x0C7F: return FONT_MAP["telugu"]
+        if 0x0C80 <= cp <= 0x0CFF: return FONT_MAP["kannada"]
+        if 0x0D00 <= cp <= 0x0D7F: return FONT_MAP["malayalam"]
+        if 0x0B00 <= cp <= 0x0B7F: return FONT_MAP["odia"]
+    return FONT_MAP["english"]
+
+def load_font(filename, size_1x):
     try:
         if os.path.exists(filename) and os.path.getsize(filename) > 2000:
             return ImageFont.truetype(filename, int(size_1x * SCALE))
@@ -71,12 +98,6 @@ def load_font(name, size_1x):
         return ImageFont.load_default()
     except Exception:
         return None
-
-def is_devanagari(text):
-    for ch in str(text):
-        if 0x0900 <= ord(ch) <= 0x097F:
-            return True
-    return False
 
 def get_text_width(font, text):
     try:
@@ -90,6 +111,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     if not text_str:
         return
 
+    font_file = detect_font_for_text(text_str)
     words = text_str.split()
     max_w_px = max_w_1x * SCALE
     max_h_px = max_h_1x * SCALE
@@ -98,10 +120,8 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     selected_lines = []
     line_mult = 1.30
 
-    # Auto-scaling loop
     for size in range(max_size, min_size - 1, -1):
-        # Use Devanagari bold for regional text; fallback gracefully to universal Latin
-        test_font = load_font("devanagari_bold", size) if is_devanagari(text_str) else load_font("universal_bold", size)
+        test_font = load_font(font_file, size)
         lines, curr = [], []
         for w in words:
             test_line = " ".join(curr + [w])
@@ -124,7 +144,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
             break
 
     if not selected_font:
-        selected_font = load_font("devanagari_bold", min_size) if is_devanagari(text_str) else load_font("universal_bold", min_size)
+        selected_font = load_font(font_file, min_size)
         lines, curr = [], []
         for w in words:
             test_line = " ".join(curr + [w])
@@ -141,7 +161,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
             lines.append(" ".join(curr))
         selected_lines = lines[:max_lines]
 
-    line_h = int((selected_font.size if hasattr(selected_font, 'size') else (14 * SCALE)) * 1.18)
+    line_h = int((selected_font.size if hasattr(selected_font, 'size') else (14 * SCALE)) * 1.15)
     curr_y = y_1x * SCALE
     for line in selected_lines:
         draw.text((x_1x * SCALE, curr_y), line, font=selected_font, fill=fill)
@@ -177,7 +197,7 @@ def init_db():
                 ("Monday", "खमंग भाजणीचे थालीपीठ, लोणी (Thalipeeth)", "भरली वांगी, ज्वारीची भाकरी, वरण (Bharli Vangi, Bhakri)", "दाल तडका, जिरा राईस, कोशिंबीर (Dal Tadka, Jeera Rice)", "उद्याच्या उसळीसाठी मटकी/मूग भिजवणे", "डोसा/इडलीसाठी डाळ-तांदूळ भिजवून वाटणे"),
                 ("Tuesday", "मऊ लुसलुशीत पोहे, चहा (Kande Pohe)", "वरण भात, गव्हाची पोळी, भेंडी भाजी (Varan Bhaat, Bhendi)", "मूग डाळ मऊ खिचडी, कढी, पापड (Moong Khichdi, Kadhi)", "ताज्या पालेभाज्या धुवून सुकवणे", "सकाळचे दूध व्यवस्थित उकळणे"),
                 ("Wednesday", "मऊ इडली, सांबार, खोबरे चटणी (Idli Sambar)", "मेथीची सुकी भाजी, पोळी, वरण भात (Methi Bhaji, Poli)", "मसाला भात, काकडी कोशिंबीर (Masala Bhaat, Koshimbir)", "कोथिंबीर व हिरवी मिरची बारीक चिरणे", "घरचे ताजे दही विरजण लावणे"),
-                ("Thursday", "गरमागरम रवा उपमा, चटणी (Upma Chutney)", "शेवभाजी, गरमागरम पोळी, भात (Shev Bhaji, Chapati)", "पिठलं भाकरी, लसूण चटणी, कांदा (Pithla Bhakri)", "मटार सोलून डब्यात ठेवणे", "कांदा-लसूण वाटण तयार करणे"),
+                ("Thursday", "ગરમાગરમ પૌંઆ, મસાલા ચા (Poha Chai)", "ગુજરાતી દાળ, ભાત, રોટલી, શાક (Gujarati Thali)", "ખીચડી, કઢી, પાપડ, અથાણું (Khichdi Kadhi)", "લીલા શાકભાજી સમારીને રાખવા", "ઢોકળાનું ખીરું આથો લાવવા મૂકવું"),
                 ("Friday", "मेथी पराठा, ताजे दही (Methi Paratha)", "फ्लॉवर-बटाटा रस्सा भाजी, पोळी, भात (Cauliflower Curry)", "मसाला दाल खिचडी, साजूक तूप (Dal Khichdi, Ghee)", "आले-लसूण पेस्ट तयार करून ठेवणे", "चपातीचे पीठ मळून ठेवणे"),
                 ("Saturday", "झणझणीत मिसळ पाव, लिंबू (Misal Pav)", "पनीर बटर मसाला, जिरा राईस, पोळी (Paneer Masala)", "घरगुती पावभाजी, बटर पाव (Pav Bhaji, Butter Pav)", "बटाटे उकडवून सोलून ठेवणे", "भाजीसाठी कांदा-टोमॅटो बारीक कापणे"),
                 ("Sunday", "कुरकुरीत डोसा, सांबार, चटणी (Crispy Dosa)", "पुरणपोळी, कटाची आमटी, भजी (Puran Poli, Katachi Amti)", "दही भात, जिरा तडका, लिंबू लोणचे (Curd Rice)", "सांबार मसाला बारीक वाटून घेणे", "पोहे चाळून स्वच्छ करणे")
@@ -357,7 +377,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. CRISP 1-BIT E-PAPER RENDERER (Clean High-Contrast Lines)
+# 5. PIXEL-PERFECT BITMAP RENDERER (Clean High-Contrast Lines)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -382,16 +402,14 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        f_logo = load_font("universal_bold", 15)
-        f_date = load_font("universal_bold", 12)
-        f_badge = load_font("universal_bold", 11)
-        f_cuisine_strip = load_font("universal_bold", 10.5)
-        f_cat = load_font("universal_bold", 10.5)
-        f_task_hdr = load_font("universal_bold", 10.5)
+        f_logo = load_font(FONT_MAP["english"], 15)
+        f_date = load_font(FONT_MAP["english"], 12)
+        f_badge = load_font(FONT_MAP["english"], 11)
+        f_cuisine_strip = load_font(FONT_MAP["english"], 10.5)
+        f_cat = load_font(FONT_MAP["english"], 10.5)
+        f_task_hdr = load_font(FONT_MAP["english"], 10.5)
 
-        # --------------------------------------------------------------------
         # 1. TOP HEADER (y: 0 to 30px)
-        # --------------------------------------------------------------------
         draw.rectangle([0, 0, CANVAS_W - 1, 30 * SCALE], fill=0)
 
         # Left: Brand Logo
@@ -420,32 +438,24 @@ def render_display():
         draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
-        # --------------------------------------------------------------------
         # 2. CUISINE SUB-HEADER STRIP (y: 30 to 46px)
-        # --------------------------------------------------------------------
         draw.rectangle([0, 30 * SCALE, CANVAS_W - 1, 46 * SCALE], fill=30)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
         draw.text((8 * SCALE, 32 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
 
-        # --------------------------------------------------------------------
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 48 to 222px)
-        # --------------------------------------------------------------------
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEAL ROWS (y: 48 to 222px)
         rail_x = 16 * SCALE
         draw.line([(rail_x, 54 * SCALE), (rail_x, 210 * SCALE)], fill=0, width=SCALE)
 
         def draw_meal_row(category, dish_text, y_start, dot_y, row_h):
-            # Timeline Dot Node
             draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
 
-            # Solid Black Category Tag Pill
             cat_w = get_text_width(f_cat, category)
             draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (10 * SCALE), (y_start * SCALE) + (15 * SCALE)], fill=0)
             draw.text(((28 * SCALE) + (5 * SCALE), (y_start * SCALE) + (2 * SCALE)), category, font=f_cat, fill=255)
 
-            # Autofit Dish Text
             draw_autofit_text(draw, dish_text, 28, y_start + 18, 364, row_h - 20, max_size=18, min_size=12, max_lines=2, fill=0)
             
-            # Row Divider Line
             div_y = y_start + row_h
             draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
 
@@ -456,9 +466,7 @@ def render_display():
         # Section Divider before Tasks
         draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
 
-        # --------------------------------------------------------------------
         # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
-        # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 242 * SCALE], fill=0)
@@ -476,9 +484,9 @@ def render_display():
         # Perimeter Frame
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # Clean Lanczos Resampling directly to 1-Bit Buffer
+        # High-order Lanczos Downsampling & Clean Thresholding
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 150 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
