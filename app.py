@@ -34,7 +34,7 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. HIGH-CONTRAST FONT ENGINE
+# 2. HIGH-LEGIBILITY FONT ENGINE
 # ============================================================================
 FONT_FILES = {
     "latin_bold": "DejaVuSans-Bold.ttf",
@@ -64,7 +64,7 @@ def load_font(name, size_1x):
     filename = FONT_FILES.get(name, "DejaVuSans-Bold.ttf")
     try:
         if os.path.exists(filename) and os.path.getsize(filename) > 2000:
-            return ImageFont.truetype(filename, size_1x * SCALE)
+            return ImageFont.truetype(filename, int(size_1x * SCALE))
     except Exception:
         pass
     try:
@@ -90,7 +90,7 @@ def get_text_width(font, text):
     except Exception:
         return len(str(text)) * (8 * SCALE)
 
-def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=15, min_size=11, max_lines=2, fill=0):
+def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=18, min_size=11, max_lines=2, fill=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -101,7 +101,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
 
     selected_font = None
     selected_lines = []
-    line_mult = 1.34
+    line_mult = 1.30
 
     for size in range(max_size, min_size - 1, -1):
         test_font = get_best_font(text_str, size)
@@ -360,7 +360,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. PIXEL-PERFECT 1-BIT E-PAPER RENDERER (400x300 Matrix)
+# 5. PIXEL-PERFECT OPTION 1 SUB-HEADER BITMAP RENDERER (400x300 Matrix)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -385,17 +385,18 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        f_logo = load_font("latin_bold", 13)
-        f_date = load_font("latin_bold", 11)
-        f_badge = load_font("latin_bold", 10)
-        f_cuisine_strip = load_font("latin_bold", 9.5)
-        f_cat = load_font("latin_bold", 9)
-        f_task_hdr = load_font("latin_bold", 9.5)
+        # Enlarged Fonts
+        f_logo = load_font("latin_bold", 15)
+        f_date = load_font("latin_bold", 12.5)
+        f_badge = load_font("latin_bold", 11)
+        f_cuisine_strip = load_font("latin_bold", 10.5)
+        f_cat = load_font("latin_bold", 11)
+        f_task_hdr = load_font("latin_bold", 11)
 
         # --------------------------------------------------------------------
-        # 1. FIXED TOP HEADER BAR (y: 0 to 28px)
+        # 1. ENLARGED TOP HEADER BAR (y: 0 to 30px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 0, CANVAS_W - 1, 28 * SCALE], fill=0)
+        draw.rectangle([0, 0, CANVAS_W - 1, 30 * SCALE], fill=0)
 
         # Left: Brand Logo
         draw.text((8 * SCALE, 8 * SCALE), "MealSync", font=f_logo, fill=255)
@@ -406,54 +407,54 @@ def render_display():
         draw.text((date_x, 8 * SCALE), date_str, font=f_date, fill=255)
 
         # Right: Hardware Telemetry
-        batX, batY = 368 * SCALE, 8 * SCALE
-        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (12 * SCALE)], outline=255, width=SCALE)
-        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (9 * SCALE)], fill=255)
+        batX, batY = 368 * SCALE, 9 * SCALE
+        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (13 * SCALE)], outline=255, width=SCALE)
+        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (10 * SCALE)], fill=255)
         fill_w = max(0, min(18 * SCALE, int((batt_pct / 100.0) * 18 * SCALE)))
         if fill_w > 0:
-            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (10 * SCALE)], fill=255)
+            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (11 * SCALE)], fill=255)
 
         b_lbl_w = get_text_width(f_badge, batt_str)
         bat_text_x = batX - b_lbl_w - (5 * SCALE)
         draw.text((bat_text_x, 8 * SCALE), batt_str, font=f_badge, fill=255)
 
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = bat_text_x - (16 * SCALE), 8 * SCALE
+        wifiX, wifiY = bat_text_x - (16 * SCALE), 9 * SCALE
         draw.rectangle([wifiX, wifiY + (7 * SCALE), wifiX + (2 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 1 else 0)
         draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
         draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
         # --------------------------------------------------------------------
-        # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
+        # 2. CUISINE SUB-HEADER STRIP (y: 30 to 46px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 28 * SCALE, CANVAS_W - 1, 44 * SCALE], fill=30)
+        draw.rectangle([0, 30 * SCALE, CANVAS_W - 1, 46 * SCALE], fill=30)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
-        draw.text((8 * SCALE, 30 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
+        draw.text((8 * SCALE, 32 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
 
         # --------------------------------------------------------------------
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 220px)
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 48 to 222px)
         # --------------------------------------------------------------------
         rail_x = 16 * SCALE
-        draw.line([(rail_x, 52 * SCALE), (rail_x, 208 * SCALE)], fill=0, width=SCALE)
+        draw.line([(rail_x, 54 * SCALE), (rail_x, 210 * SCALE)], fill=0, width=SCALE)
 
         def draw_meal_row(category, dish_text, y_start, dot_y, row_h):
             # Timeline Dot
             draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
 
-            # Category Pill
+            # Category Pill (Enlarged)
             cat_w = get_text_width(f_cat, category)
-            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (8 * SCALE), (y_start * SCALE) + (13 * SCALE)], fill=0)
-            draw.text(((28 * SCALE) + (4 * SCALE), (y_start * SCALE) + (1 * SCALE)), category, font=f_cat, fill=255)
+            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (10 * SCALE), (y_start * SCALE) + (15 * SCALE)], fill=0)
+            draw.text(((28 * SCALE) + (5 * SCALE), (y_start * SCALE) + (2 * SCALE)), category, font=f_cat, fill=255)
 
-            # Dish Text
-            draw_autofit_text(draw, dish_text, 28, y_start + 16, 364, row_h - 18, max_size=15, min_size=11, max_lines=2, fill=0)
+            # Autofit Dish Text (starts at 18px down to 11px)
+            draw_autofit_text(draw, dish_text, 28, y_start + 18, 364, row_h - 20, max_size=18, min_size=11, max_lines=2, fill=0)
             
             div_y = y_start + row_h
             draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
 
-        draw_meal_row("BREAKFAST", data["breakfast"], 48, 54, 54)
-        draw_meal_row("LUNCH", data["lunch"], 106, 112, 54)
-        draw_meal_row("DINNER", data["dinner"], 164, 170, 54)
+        draw_meal_row("BREAKFAST", data["breakfast"], 48, 55, 54)
+        draw_meal_row("LUNCH", data["lunch"], 106, 113, 54)
+        draw_meal_row("DINNER", data["dinner"], 164, 171, 54)
 
         # Section Divider before Tasks
         draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
@@ -463,17 +464,17 @@ def render_display():
         # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
         draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 241 * SCALE], fill=0)
+        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 242 * SCALE], fill=0)
         draw.text((10 * SCALE, 227 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
         draw.rectangle([12 * SCALE, 248 * SCALE, 22 * SCALE, 258 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task1"], 26, 245, 166, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw_autofit_text(draw, data["task1"], 26, 245, 166, 46, max_size=14, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
         draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 241 * SCALE], fill=0)
+        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 242 * SCALE], fill=0)
         draw.text((206 * SCALE, 227 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
         draw.rectangle([208 * SCALE, 248 * SCALE, 218 * SCALE, 258 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task2"], 222, 245, 168, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw_autofit_text(draw, data["task2"], 222, 245, 168, 46, max_size=14, min_size=10, max_lines=3, fill=0)
 
         # Perimeter Frame
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
