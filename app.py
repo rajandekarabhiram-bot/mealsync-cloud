@@ -34,10 +34,11 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. GLOBAL & REGIONAL FONT ENGINE
+# 2. GLOBAL & REGIONAL FONT ENGINE (Crisp Modern Fonts)
 # ============================================================================
 FONT_MAP = {
-    "english": "Rubik-Bold.ttf",
+    "english": "Inter-Bold.ttf",
+    "english_sub": "Inter-SemiBold.ttf",
     "devanagari": "NotoSansDevanagari-Bold.ttf",
     "gurmukhi": "NotoSansGurmukhi-Bold.ttf",
     "gujarati": "NotoSansGujarati-Bold.ttf",
@@ -57,7 +58,8 @@ FONT_MAP = {
 
 def ensure_fonts():
     font_urls = {
-        "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf",
+        "Inter-Bold.ttf": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Bold.otf",
+        "Inter-SemiBold.ttf": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-SemiBold.otf",
         "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
         "NotoSansGurmukhi-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGurmukhi/NotoSansGurmukhi-Bold.ttf",
         "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf",
@@ -147,13 +149,13 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM weekly_menu")
         if cur.fetchone()[0] == 0:
             default_days = [
-                ("Monday", "पोहे, चहा", "वरण भात, पोळी, भेंडी भाजी", "खिचडी, कढी, पापड", "दूध आणणे", "मटकी भिजवणे"),
-                ("Tuesday", "उपमा, खोबरे चटणी", "पोळी, उसळ, भात", "थालीपीठ, लोणी", "किराणा आणणे", "पीठ आंबवणे"),
-                ("Wednesday", "इडली, चटणी, सांबार", "वरण भात, पोळी, वांगी भाजी", "मसाला भात, कोशिंबीर", "भाजी धुणे", "दही लावणे"),
-                ("Thursday", "शिरा, गरम दूध", "पोळी, शेवभाजी, भात", "मुगाची मऊ खिचडी", "कोथिंबीर कापणे", "दूध आणणे"),
-                ("Friday", "मेथी पराठा, दही", "वरण भात, फ्लॉवर भाजी, पोळी", "दाल खिचडी, कढी", "मेथी निवडून ठेवणे", "पीठ मळणे"),
-                ("Saturday", "मिसळ पाव, लिंबू", "पोळी, पनीर भाजी, जीरा राईस", "पावभाजी, कांदा", "मटार सोलणे", "बटाटे उकडणे"),
-                ("Sunday", "डोसा, सांबार, चटणी", "पुरणपोळी, कटाची आमटी, भजी", "दही भात, लोणचे", "सांबार मसाला", "पोहे चाळणे")
+                ("Monday", "पोहे, चहा", "वरण भात, पोळी, भेंडी भाजी", "खिचडी, कढी, पापड", "दूध आणणे व भाजी धुणे", "मटकी मोड येण्यासाठी भिजवणे"),
+                ("Tuesday", "उपमा, खोबरे चटणी", "पोळी, उसळ, भात", "थालीपीठ, लोणी", "किराणा सामान आणणे", "इडलीचे पीठ आंबवणे"),
+                ("Wednesday", "इडली, चटणी, सांबार", "वरण भात, पोळी, वांगी भाजी", "मसाला भात, कोशिंबीर", "ताज्या भाज्या चिरणे", "दही विरजण लावणे"),
+                ("Thursday", "शिरा, गरम दूध", "पोळी, शेवभाजी, भात", "मुगाची मऊ खिचडी", "कोथिंबीर कापणे व निवडणे", "सकाळचे दूध व्यवस्थित उकळणे"),
+                ("Friday", "मेथी पराठा, दही", "वरण भात, फ्लॉवर भाजी, पोळी", "दाल खिचडी, कढी", "मेथी निवडून सुकवून ठेवणे", "पोळ्यांचे पीठ मळणे"),
+                ("Saturday", "मिसळ पाव, लिंबू", "पोळी, पनीर भाजी, जीरा राईस", "पावभाजी, कांदा", "हिरवे मटार सोलून ठेवणे", "उकडलेले बटाटे तयार करणे"),
+                ("Sunday", "डोसा, सांबार, चटणी", "पुरणपोळी, कटाची आमटी, भजी", "दही भात, लोणचे", "सांबार मसाला बारीक करणे", "पोहे व्यवस्थित चाळणे")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
@@ -207,14 +209,14 @@ def get_target_menu_data():
     
     if forced_day != "AUTO":
         target_day = forced_day
-        date_str = f"{target_day.upper()} (LIVE)"
+        date_str = f"{target_day.upper()}"
     else:
         if now_ist.hour >= 21:
             target_date = now_ist + timedelta(days=1)
         else:
             target_date = now_ist
         target_day = target_date.strftime("%A")
-        date_str = target_date.strftime("%a, %d %b %Y").upper()
+        date_str = target_date.strftime("%a, %d %b").upper()
 
     cuisine = get_setting("active_cuisine", "Maharashtrian")
 
@@ -329,56 +331,8 @@ def api_menu_handler():
     SYNC_VERSION += 1
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
-@app.route('/api/ai-suggest', methods=['POST', 'OPTIONS'])
-def api_ai_suggest():
-    if request.method == 'OPTIONS':
-        return Response(status=200)
-
-    req = request.get_json(force=True)
-    target_day = req.get("day_name", "Monday")
-    cuisine = req.get("cuisine", "Maharashtrian")
-    diet = req.get("diet", "VEG")
-    user_prompt = req.get("prompt", f"Healthy authentic {diet} {cuisine} menu with advance prep.")
-    api_key = req.get("gemini_key") or GEMINI_API_KEY
-
-    if not api_key:
-        return jsonify({"error": "No Gemini API key provided."}), 400
-
-    system_instruction = f"""
-    You are the MealSync AI Sous-Chef.
-    Generate a culinary plan matching Cuisine: {cuisine} and Diet: {diet}.
-    Rules:
-    1. Diet: If VEG, strictly pure vegetarian. If NON_VEG, include authentic meat/fish.
-    2. Format: Use comma separators (", ") between items. Keep concise (<35 chars per line).
-    3. Script: Native script for the region.
-    4. task1: Today's fresh prep.
-    5. task2: Overnight/advance prep for tomorrow.
-    """
-
-    prompt_text = f"Day: {target_day}\nCuisine: {cuisine}\nDiet: {diet}\nNotes: {user_prompt}\nReturn strict JSON schema with keys: breakfast, lunch, dinner, task1, task2."
-
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}"
-        payload = {
-            "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "contents": [{"parts": [{"text": prompt_text}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.3
-            }
-        }
-        res = requests.post(url, json=payload, timeout=12)
-        if res.status_code == 200:
-            result_json = res.json()
-            plan_str = result_json["candidates"][0]["content"]["parts"][0]["text"]
-            return jsonify(json.loads(plan_str)), 200
-        else:
-            return jsonify({"error": res.text}), res.status_code
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # ============================================================================
-# 5. E-PAPER BITMAP RENDERER (400x300 Matrix)
+# 5. E-PAPER RENDERER (Dual Column Prep & Multi-Font Engine)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -415,7 +369,7 @@ def get_wrapped_lines(text, font, max_width_2x):
         lines.append(" ".join(curr))
     return lines
 
-def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=18, min_size=10, max_lines=2, fill_color=0):
+def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=17, min_size=11, max_lines=2, fill_color=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -423,7 +377,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     font_file = get_font_for_text(text_str)
     selected_font = None
     selected_lines = []
-    line_mult = 1.30
+    line_mult = 1.28
 
     max_w_2x = max_w_1x * SCALE
     max_h_2x = max_h_1x * SCALE
@@ -471,27 +425,35 @@ def render_display():
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        font_logo = safe_font(FONT_MAP["english"], 18)
+        font_logo = safe_font(FONT_MAP["english"], 17)
         font_date = safe_font(FONT_MAP["english"], 13)
-        font_badge = safe_font(FONT_MAP["english"], 13)
-        font_section = safe_font(FONT_MAP["english"], 15)
+        font_cuisine = safe_font(FONT_MAP["english_sub"], 11)
+        font_badge = safe_font(FONT_MAP["english_sub"], 12)
+        font_sidebar = safe_font(FONT_MAP["english"], 14)
+        font_subhead = safe_font(FONT_MAP["english_sub"], 10)
 
-        # Header Bar
+        # 1. TOP HEADER (Solid Black Background)
         draw.rectangle([0, 0, CANVAS_W - 1, 38 * SCALE], fill=0)
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
+        
+        # Logo & Date
         draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
+        
+        # Active Cuisine Pill
+        cuisine_label = f"• {data['cuisine'].upper()}"
+        draw.text((92 * SCALE, 12 * SCALE), cuisine_label, font=font_cuisine, fill=200)
 
-        # Wi-Fi Bars
-        signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = 96 * SCALE, 13 * SCALE
-        draw.rectangle([wifiX + 4 * SCALE,  wifiY + 8 * SCALE, wifiX + 7 * SCALE,  wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 9 * SCALE,  wifiY + 5 * SCALE, wifiX + 12 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 14 * SCALE, wifiY + 2 * SCALE, wifiX + 17 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
-
-        # Date
+        # Date Center
         date_w = get_text_width(font_date, date_str)
-        date_center_x = (CANVAS_W - date_w) // 2
-        draw.text((date_center_x, 11 * SCALE), date_str, font=font_date, fill=255)
+        date_x = (CANVAS_W - date_w) // 2
+        draw.text((date_x, 10 * SCALE), date_str, font=font_date, fill=255)
+
+        # Wi-Fi 3-Bar Signal
+        signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
+        wifiX, wifiY = 320 * SCALE, 13 * SCALE
+        draw.rectangle([wifiX + 3 * SCALE, wifiY + 8 * SCALE, wifiX + 5 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 7 * SCALE, wifiY + 5 * SCALE, wifiX + 9 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 11 * SCALE, wifiY + 2 * SCALE, wifiX + 13 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
 
         # Battery Bar & Badge
         batX, batY = 360 * SCALE, 12 * SCALE
@@ -503,33 +465,47 @@ def render_display():
             draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 12 * SCALE], fill=255)
 
         badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 8 * SCALE, 11 * SCALE), batt_str, font=font_badge, fill=255)
+        draw.text((batX - badge_w - 6 * SCALE, 11 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # Sidebar
-        sidebar_w = 118 * SCALE
-        draw.rectangle([0, 38 * SCALE, sidebar_w, CANVAS_H - 1], fill=0)
-        draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_section, fill=255)
-        draw.text((10 * SCALE, 112 * SCALE), "LUNCH", font=font_section, fill=255)
-        draw.text((10 * SCALE, 175 * SCALE), "DINNER", font=font_section, fill=255)
-        draw.text((10 * SCALE, 245 * SCALE), "TASKS", font=font_section, fill=255)
+        # 2. SIDEBAR FOR MEALS
+        sidebar_w = 114 * SCALE
+        draw.rectangle([0, 38 * SCALE, sidebar_w, 226 * SCALE], fill=0)
+        draw.text((10 * SCALE, 52 * SCALE), "BREAKFAST", font=font_sidebar, fill=255)
+        draw.text((10 * SCALE, 112 * SCALE), "LUNCH", font=font_sidebar, fill=255)
+        draw.text((10 * SCALE, 172 * SCALE), "DINNER", font=font_sidebar, fill=255)
 
-        for y_div in [98, 160, 228]:
+        for y_div in [96, 156]:
             draw.line([(0, y_div * SCALE), (sidebar_w, y_div * SCALE)], fill=255, width=2 * SCALE)
             draw.line([(sidebar_w, y_div * SCALE), (CANVAS_W, y_div * SCALE)], fill=0, width=2 * SCALE)
 
-        # Meals
-        draw_autofit_text(draw, data["breakfast"], 128, 44, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["lunch"], 128, 106, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
-        draw_autofit_text(draw, data["dinner"], 128, 170, 260, 48, max_size=18, min_size=12, max_lines=2, fill_color=0)
+        # Horizontal separator before TASKS
+        draw.line([(0, 226 * SCALE), (CANVAS_W, 226 * SCALE)], fill=0, width=2 * SCALE)
 
-        # Checkboxes & Tasks
-        draw.rectangle([126 * SCALE, 238 * SCALE, 138 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
-        draw_autofit_text(draw, data["task1"], 142, 234, 116, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # Render Meals (Breakfast, Lunch, Dinner with Multilingual Regional Auto-Wrap)
+        draw_autofit_text(draw, data["breakfast"], 124, 46, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
+        draw_autofit_text(draw, data["lunch"], 124, 106, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
+        draw_autofit_text(draw, data["dinner"], 124, 166, 268, 44, max_size=17, min_size=12, max_lines=2, fill_color=0)
 
-        draw.rectangle([264 * SCALE, 238 * SCALE, 276 * SCALE, 250 * SCALE], outline=0, width=2 * SCALE)
-        draw_autofit_text(draw, data["task2"], 280, 234, 114, 56, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # 3. DUAL-COLUMN ADVANCE PREP & TASKS SECTION (y: 226 to 298)
+        # Column 1: Today's Fresh Prep (x: 10 to 195)
+        draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([10 * SCALE, 232 * SCALE, 198 * SCALE, 246 * SCALE], fill=0)
+        draw.text((14 * SCALE, 234 * SCALE), "TODAY'S FRESH PREP", font=font_subhead, fill=255)
+        
+        # Checkbox 1
+        draw.rectangle([16 * SCALE, 255 * SCALE, 26 * SCALE, 265 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task1"], 30, 250, 164, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Downscale & 1-bit monochrome dithering
+        # Column 2: Overnight Prep for Tomorrow (x: 204 to 390)
+        draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([204 * SCALE, 232 * SCALE, 390 * SCALE, 246 * SCALE], fill=0)
+        draw.text((208 * SCALE, 234 * SCALE), "OVERNIGHT / ADVANCE PREP", font=font_subhead, fill=255)
+
+        # Checkbox 2
+        draw.rectangle([210 * SCALE, 255 * SCALE, 220 * SCALE, 265 * SCALE], outline=0, width=SCALE)
+        draw_autofit_text(draw, data["task2"], 224, 250, 162, 40, max_size=13, min_size=10, max_lines=2, fill_color=0)
+
+        # Downscale & 1-bit monochrome conversion
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
@@ -548,7 +524,7 @@ def render_display():
         return f"Internal Error: {err}", 500
 
 # ============================================================================
-# 6. ROOT ROUTE
+# 6. ROOT ROUTE (HTML Preview Card)
 # ============================================================================
 @app.route('/')
 def home():
@@ -571,7 +547,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized</div>
+            <div class="status">● Active & Synchronized (Dual-Column Layout)</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
