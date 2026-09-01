@@ -109,7 +109,7 @@ def get_font_for_text(text):
     return FONT_MAP["english"]
 
 # ============================================================================
-# 3. DATABASE SETUP & PERSISTENT TELEMETRY
+# 3. DATABASE SETUP & PERSISTENCE
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -149,13 +149,13 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM weekly_menu")
         if cur.fetchone()[0] == 0:
             default_days = [
-                ("Monday", "पोहे, चहा", "वरण भात, पोळी, भेंडी भाजी", "खिचडी, कढी, पापड", "ताज्या भाज्या चिरणे", "मटकी मोड येण्यासाठी भिजवणे"),
-                ("Tuesday", "उपमा, खोबरे चटणी", "पोळी, उसळ, भात", "थालीपीठ, लोणी", "किराणा सामान आणणे", "इडलीचे पीठ आंबवणे"),
-                ("Wednesday", "इडली, चटणी, सांबार", "वरण भात, पोळी, वांगी भाजी", "मसाला भात, कोशिंबीर", "भाजी धुवून ठेवणे", "दही विरजण लावणे"),
-                ("Thursday", "शिरा, गरम दूध", "पोळी, शेवभाजी, भात", "मुगाची मऊ खिचडी", "कोथिंबीर कापणे", "दूध उकळून ठेवणे"),
-                ("Friday", "मेथी पराठा, दही", "वरण भात, फ्लॉवर भाजी, पोळी", "दाल खिचडी, कढी", "मेथी निवडून ठेवणे", "पोळ्यांचे पीठ मळणे"),
-                ("Saturday", "मिसळ पाव, लिंबू", "पोळी, पनीर भाजी, जीरा राईस", "पावभाजी, कांदा", "हिरवे मटार सोलणे", "उकडलेले बटाटे तयार करणे"),
-                ("Sunday", "डोसा, सांबार, चटणी", "पुरणपोळी, कटाची आमटी, भजी", "दही भात, लोणचे", "सांबार मसाला बारीक करणे", "पोहे व्यवस्थित चाळणे")
+                ("Monday", "Pohe, Masala Chaha, Koshimbir", "Varan Bhaat, Ghadichi Poli, Bhendi Bhaji, Mattha", "Moong Khichdi, Kadhi, Roasted Papad, Lonche", "Clean coriander & wash green peas", "Soak matki & chana dal"),
+                ("Tuesday", "Upma, Coconut Chutney", "Poli, Usal, Steamed Rice", "Thalipeeth, Fresh White Butter", "Buy groceries from market", "Ferment idli batter"),
+                ("Wednesday", "Idli, Medu Vada, Sambar", "Varan Bhaat, Baingan Bhaji, Poli", "Masala Bhaat, Cucumber Koshimbir", "Chop fresh vegetables", "Set fresh curd"),
+                ("Thursday", "Sheera, Hot Masala Milk", "Poli, Shev Bhaji, Steamed Rice", "Moong Dal Khichdi, Ghee", "Chop and pluck coriander", "Boil milk properly"),
+                ("Friday", "Methi Paratha, Dahi", "Varan Bhaat, Cauliflower Bhaji, Poli", "Dal Khichdi, Gujarati Kadhi", "Clean and dry fenugreek", "Knead chapati dough"),
+                ("Saturday", "Misal Pav, Lemon, Farsan", "Poli, Paneer Bhaji, Jeera Rice", "Pav Bhaji, Chopped Onions", "Peel green peas", "Boil and mash potatoes"),
+                ("Sunday", "Crispy Dosa, Sambar, Chutney", "Puran Poli, Katachi Amti, Bhaji", "Curd Rice, Tadka, Lemon Pickle", "Grind sambar spice powder", "Clean poha grains")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
@@ -216,7 +216,7 @@ def get_target_menu_data():
         else:
             target_date = now_ist
         target_day = target_date.strftime("%A")
-        date_str = target_date.strftime("%a, %d %b").upper()
+        date_str = target_date.strftime("%a, %d %b %Y").upper()
 
     cuisine = get_setting("active_cuisine", "Maharashtrian")
 
@@ -332,7 +332,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. BAUHAUS RAIL BITMAP RENDERER (400x300 Matrix)
+# 5. EXACT OPTION A (BAUHAUS RAIL) 1-BIT BITMAP RENDERER (400x300 Matrix)
 # ============================================================================
 def safe_font(font_path, size_1x):
     try:
@@ -369,7 +369,7 @@ def get_wrapped_lines(text, font, max_width_2x):
         lines.append(" ".join(curr))
     return lines
 
-def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=16, min_size=11, max_lines=2, fill_color=0):
+def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=15, min_size=11, max_lines=2, fill_color=0):
     text_str = str(text_str).strip()
     if not text_str:
         return
@@ -377,7 +377,7 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     font_file = get_font_for_text(text_str)
     selected_font = None
     selected_lines = []
-    line_mult = 1.26
+    line_mult = 1.25
 
     max_w_2x = max_w_1x * SCALE
     max_h_2x = max_h_1x * SCALE
@@ -412,6 +412,7 @@ def render_display():
         date_str, data = get_target_menu_data()
         telem = get_telemetry()
 
+        # Telemetry parsing
         rssi = int(request.args.get('rssi', telem["rssi"]))
         batt_pct = int(request.args.get('pct', telem["battery_pct"]))
         batt_str = str(request.args.get('batt', telem["battery_label"]))
@@ -421,93 +422,102 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
+        # 2x High-Resolution Canvas (800x600)
         img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
         draw = ImageDraw.Draw(img_2x)
 
-        font_logo = safe_font(FONT_MAP["english"], 16)
-        font_date = safe_font(FONT_MAP["english"], 13)
-        font_cuisine = safe_font(FONT_MAP["english_sub"], 11)
-        font_badge = safe_font(FONT_MAP["english_sub"], 12)
+        # Typography Load
+        font_brand = safe_font(FONT_MAP["english"], 14)
+        font_cuisine_badge = safe_font(FONT_MAP["english_sub"], 10)
+        font_date = safe_font(FONT_MAP["english"], 12)
+        font_badge = safe_font(FONT_MAP["english_sub"], 11)
         font_time = safe_font(FONT_MAP["english"], 11)
-        font_cat = safe_font(FONT_MAP["english_sub"], 10)
-        font_subhead = safe_font(FONT_MAP["english_sub"], 10)
+        font_label = safe_font(FONT_MAP["english_sub"], 10)
+        font_prep_title = safe_font(FONT_MAP["english"], 10)
 
-        # 1. TOP HEADER (Solid Black)
+        # --------------------------------------------------------------------
+        # 1. SOLID BLACK HEADER BAR (y: 0 to 36px)
+        # --------------------------------------------------------------------
         draw.rectangle([0, 0, CANVAS_W - 1, 36 * SCALE], fill=0)
-        draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
         
-        # Logo + Cuisine
-        draw.text((10 * SCALE, 9 * SCALE), "MealSync", font=font_logo, fill=255)
-        cuisine_label = f"• {data['cuisine'].upper()}"
-        draw.text((88 * SCALE, 12 * SCALE), cuisine_label, font=font_cuisine, fill=200)
+        # Left: Brand + Cuisine
+        draw.text((10 * SCALE, 10 * SCALE), "MealSync", font=font_brand, fill=255)
+        cuisine_txt = f"• {data['cuisine'].upper()}"
+        draw.text((80 * SCALE, 12 * SCALE), cuisine_txt, font=font_cuisine_badge, fill=200)
 
-        # Centered Date
+        # Center: Current Date
         date_w = get_text_width(font_date, date_str)
         date_x = (CANVAS_W - date_w) // 2
         draw.text((date_x, 10 * SCALE), date_str, font=font_date, fill=255)
 
-        # Wi-Fi 3-Bar Signal Ladder
+        # Right: Wi-Fi Signal Bars
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = 320 * SCALE, 12 * SCALE
-        draw.rectangle([wifiX + 3 * SCALE, wifiY + 8 * SCALE, wifiX + 5 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 7 * SCALE, wifiY + 5 * SCALE, wifiX + 9 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 11 * SCALE, wifiY + 2 * SCALE, wifiX + 13 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
+        draw.rectangle([wifiX + 2 * SCALE, wifiY + 8 * SCALE, wifiX + 4 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 6 * SCALE, wifiY + 5 * SCALE, wifiX + 8 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 10 * SCALE, wifiY + 2 * SCALE, wifiX + 12 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
 
-        # Battery Bar & Badge
+        # Right: Battery Icon + Text
         batX, batY = 360 * SCALE, 11 * SCALE
-        draw.rectangle([batX, batY, batX + 26 * SCALE, batY + 14 * SCALE], outline=255, width=SCALE)
-        draw.rectangle([batX + 26 * SCALE, batY + 3 * SCALE, batX + 28 * SCALE, batY + 11 * SCALE], fill=255)
+        draw.rectangle([batX, batY, batX + 24 * SCALE, batY + 13 * SCALE], outline=255, width=SCALE)
+        draw.rectangle([batX + 24 * SCALE, batY + 3 * SCALE, batX + 26 * SCALE, batY + 10 * SCALE], fill=255)
 
-        fill_w = max(0, min(22 * SCALE, int((batt_pct / 100.0) * 22 * SCALE)))
+        fill_w = max(0, min(20 * SCALE, int((batt_pct / 100.0) * 20 * SCALE)))
         if fill_w > 0:
-            draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 12 * SCALE], fill=255)
+            draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + fill_w, batY + 11 * SCALE], fill=255)
 
-        badge_w = get_text_width(font_badge, batt_str)
-        draw.text((batX - badge_w - 6 * SCALE, 10 * SCALE), batt_str, font=font_badge, fill=255)
+        batt_label_w = get_text_width(font_badge, batt_str)
+        draw.text((batX - batt_label_w - 6 * SCALE, 10 * SCALE), batt_str, font=font_badge, fill=255)
 
-        # 2. BAUHAUS TIMELINE RAIL (x: 82px)
-        rail_x = 82 * SCALE
-        draw.line([(rail_x, 44 * SCALE), (rail_x, 218 * SCALE)], fill=0, width=SCALE)
+        # --------------------------------------------------------------------
+        # 2. BAUHAUS RAIL TIMELINE (y: 36 to 220px)
+        # --------------------------------------------------------------------
+        rail_x = 84 * SCALE
+        # Vertical continuous timeline line
+        draw.line([(rail_x, 44 * SCALE), (rail_x, 212 * SCALE)], fill=0, width=SCALE)
 
-        # Slot 1: Breakfast (y: 42 to 96)
-        draw.text((12 * SCALE, 46 * SCALE), "08:30 AM", font=font_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 50 * SCALE, rail_x + 3 * SCALE, 56 * SCALE], fill=0)
-        draw.text((94 * SCALE, 44 * SCALE), "BREAKFAST", font=font_cat, fill=100)
-        draw_autofit_text(draw, data["breakfast"], 94, 58, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
-        draw.line([(94 * SCALE, 96 * SCALE), (CANVAS_W - 10 * SCALE, 96 * SCALE)], fill=200, width=SCALE)
+        # Slot 1: BREAKFAST
+        draw.text((12 * SCALE, 50 * SCALE), "08:30 AM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 54 * SCALE, rail_x + 3 * SCALE, 60 * SCALE], fill=0)
+        draw.text((96 * SCALE, 44 * SCALE), "BREAKFAST", font=font_label, fill=100)
+        draw_autofit_text(draw, data["breakfast"], 96, 58, 294, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
+        draw.line([(96 * SCALE, 96 * SCALE), (CANVAS_W - 10 * SCALE, 96 * SCALE)], fill=200, width=SCALE)
 
-        # Slot 2: Lunch (y: 102 to 156)
-        draw.text((12 * SCALE, 106 * SCALE), "01:00 PM", font=font_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 110 * SCALE, rail_x + 3 * SCALE, 116 * SCALE], fill=0)
-        draw.text((94 * SCALE, 104 * SCALE), "LUNCH", font=font_cat, fill=100)
-        draw_autofit_text(draw, data["lunch"], 94, 118, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
-        draw.line([(94 * SCALE, 156 * SCALE), (CANVAS_W - 10 * SCALE, 156 * SCALE)], fill=200, width=SCALE)
+        # Slot 2: LUNCH
+        draw.text((12 * SCALE, 110 * SCALE), "01:00 PM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 114 * SCALE, rail_x + 3 * SCALE, 120 * SCALE], fill=0)
+        draw.text((96 * SCALE, 104 * SCALE), "LUNCH", font=font_label, fill=100)
+        draw_autofit_text(draw, data["lunch"], 96, 118, 294, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
+        draw.line([(96 * SCALE, 156 * SCALE), (CANVAS_W - 10 * SCALE, 156 * SCALE)], fill=200, width=SCALE)
 
-        # Slot 3: Dinner (y: 162 to 218)
-        draw.text((12 * SCALE, 166 * SCALE), "08:30 PM", font=font_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 170 * SCALE, rail_x + 3 * SCALE, 176 * SCALE], fill=0)
-        draw.text((94 * SCALE, 164 * SCALE), "DINNER", font=font_cat, fill=100)
-        draw_autofit_text(draw, data["dinner"], 94, 178, 296, 36, max_size=16, min_size=11, max_lines=2, fill_color=0)
+        # Slot 3: DINNER
+        draw.text((12 * SCALE, 170 * SCALE), "08:30 PM", font=font_time, fill=0)
+        draw.ellipse([rail_x - 3 * SCALE, 174 * SCALE, rail_x + 3 * SCALE, 180 * SCALE], fill=0)
+        draw.text((96 * SCALE, 164 * SCALE), "DINNER", font=font_label, fill=100)
+        draw_autofit_text(draw, data["dinner"], 96, 178, 294, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
 
-        # Section Divider before Tasks
-        draw.line([(0, 224 * SCALE), (CANVAS_W, 224 * SCALE)], fill=0, width=2 * SCALE)
+        # Horizontal separator before TASKS
+        draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
 
-        # 3. DUAL-COLUMN ADVANCE PREP & TASKS (y: 228 to 294)
-        # Column 1: Today's Prep
-        draw.rectangle([10 * SCALE, 228 * SCALE, 198 * SCALE, 292 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([10 * SCALE, 228 * SCALE, 198 * SCALE, 242 * SCALE], fill=0)
-        draw.text((14 * SCALE, 230 * SCALE), "TODAY'S PREP", font=font_subhead, fill=255)
-        draw.rectangle([16 * SCALE, 252 * SCALE, 26 * SCALE, 262 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task1"], 30, 246, 164, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # --------------------------------------------------------------------
+        # 3. DUAL-COLUMN PREP SECTION (y: 228 to 294px)
+        # --------------------------------------------------------------------
+        # Column 1: TODAY'S PREP (Left Card)
+        draw.rectangle([8 * SCALE, 228 * SCALE, 198 * SCALE, 292 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([8 * SCALE, 228 * SCALE, 198 * SCALE, 244 * SCALE], fill=0)
+        draw.text((12 * SCALE, 230 * SCALE), "☐ TODAY'S PREP", font=font_prep_title, fill=255)
+        draw_autofit_text(draw, data["task1"], 12, 248, 182, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Column 2: Tomorrow's Prep
-        draw.rectangle([204 * SCALE, 228 * SCALE, 390 * SCALE, 292 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([204 * SCALE, 228 * SCALE, 390 * SCALE, 242 * SCALE], fill=0)
-        draw.text((208 * SCALE, 230 * SCALE), "TOMORROW'S PREP", font=font_subhead, fill=255)
-        draw.rectangle([210 * SCALE, 252 * SCALE, 220 * SCALE, 262 * SCALE], outline=0, width=SCALE)
-        draw_autofit_text(draw, data["task2"], 224, 246, 162, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
+        # Column 2: TOMORROW'S PREP (Right Card)
+        draw.rectangle([202 * SCALE, 228 * SCALE, 392 * SCALE, 292 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([202 * SCALE, 228 * SCALE, 392 * SCALE, 244 * SCALE], fill=0)
+        draw.text((206 * SCALE, 230 * SCALE), "☐ TOMORROW'S PREP", font=font_prep_title, fill=255)
+        draw_autofit_text(draw, data["task2"], 206, 248, 182, 42, max_size=13, min_size=10, max_lines=2, fill_color=0)
 
-        # Downscale & 1-bit monochrome conversion
+        # Perimeter Border
+        draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
+
+        # Downsample to 400x300 1-bit monochrome
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
         img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
         img_1bit = img_downscaled.point(lambda p: 255 if p > 160 else 0, mode="1")
@@ -546,13 +556,13 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized (Bauhaus Rail Layout)</div>
+            <div class="status">● Active & Synchronized (Option A: Bauhaus Rail)</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
                 <span class="badge">{telem['voltage']}V</span>
             </div>
-            <p style="font-size: 12px; color: #94a3b8; margin-top: 12px;">Live 1-bit E-Paper Buffer Stream (N1B4V02 / SSD1683):</p>
+            <p style="font-size: 12px; color: #94a3b8; margin-top: 12px;">Live 1-bit E-Paper Buffer Stream (SSD1683 / 400×300):</p>
             <img src="/display.bmp" alt="Live E-Paper Stream" />
             <div style="margin-top: 20px; font-size: 13px;">
                 <a href="https://mealsync-hub.ai.studio/" target="_blank">Open MealSync Web Dashboard ➔</a>
