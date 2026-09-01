@@ -16,11 +16,12 @@ DB_FILE = "mealsync.db"
 SYNC_VERSION = 1
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# Ultra-HD 3x Supersampling Engine for crisp electrophoretic text
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
-SCALE = 2
-CANVAS_W = PANEL_WIDTH * SCALE
-CANVAS_H = PANEL_HEIGHT * SCALE
+SCALE = 3
+CANVAS_W = PANEL_WIDTH * SCALE   # 1200px
+CANVAS_H = PANEL_HEIGHT * SCALE  # 900px
 
 # ============================================================================
 # 1. CORS & CACHE HEADERS
@@ -34,7 +35,7 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. GLOBAL & REGIONAL FONT ENGINE (High-Legibility Weights)
+# 2. HD FONT ENGINE
 # ============================================================================
 FONT_MAP = {
     "english": "Rubik-Bold.ttf",
@@ -121,16 +122,16 @@ def get_text_width(font, text):
         bbox = font.getbbox(str(text))
         return bbox[2] - bbox[0]
     except Exception:
-        return len(str(text)) * 14
+        return len(str(text)) * (9 * SCALE)
 
-def get_wrapped_lines(text, font, max_width_2x):
+def get_wrapped_lines(text, font, max_width_px):
     words = str(text).strip().split()
     if not words:
         return []
     lines, curr = [], []
     for w in words:
         test_line = " ".join(curr + [w])
-        if get_text_width(font, test_line) <= max_width_2x:
+        if get_text_width(font, test_line) <= max_width_px:
             curr.append(w)
         else:
             if curr:
@@ -151,26 +152,26 @@ def draw_autofit_text(draw, text_str, x_1x, y_1x, max_w_1x, max_h_1x, max_size=1
     font_file = get_font_for_text(text_str)
     selected_font = None
     selected_lines = []
-    line_mult = 1.32
+    line_mult = 1.34
 
-    max_w_2x = max_w_1x * SCALE
-    max_h_2x = max_h_1x * SCALE
+    max_w_px = max_w_1x * SCALE
+    max_h_px = max_h_1x * SCALE
 
     for size in range(max_size, min_size - 1, -1):
         test_font = safe_font(font_file, size)
-        lines = get_wrapped_lines(text_str, test_font, max_w_2x)
+        lines = get_wrapped_lines(text_str, test_font, max_w_px)
         line_h = int((size * SCALE) * line_mult)
         total_h = len(lines) * line_h
-        if len(lines) <= max_lines and total_h <= max_h_2x:
+        if len(lines) <= max_lines and total_h <= max_h_px:
             selected_font = test_font
             selected_lines = lines
             break
             
     if not selected_font:
         selected_font = safe_font(font_file, min_size)
-        selected_lines = get_wrapped_lines(text_str, selected_font, max_w_2x)[:max_lines]
+        selected_lines = get_wrapped_lines(text_str, selected_font, max_w_px)[:max_lines]
 
-    line_h = int((selected_font.size) * line_mult) if hasattr(selected_font, 'size') else 28
+    line_h = int((selected_font.size) * line_mult) if hasattr(selected_font, 'size') else (14 * SCALE)
     curr_y = y_1x * SCALE
     for line in selected_lines:
         draw.text((x_1x * SCALE, curr_y), line, font=selected_font, fill=fill_color)
@@ -313,10 +314,10 @@ def api_telemetry():
     if request.method == 'POST':
         try:
             p = request.get_json(force=True)
-            pct = int(p.get("pct", 100))
+            pct = int(p.get("pct", 85))
             label = str(p.get("batt", "425d"))
             v = float(p.get("v", 4.10))
-            rssi = int(p.get("rssi", -55))
+            rssi = int(p.get("rssi", -77))
             wifi_str = str(p.get("wifi_strength", "Good (2/3)"))
             
             update_telemetry_db(pct, label, v, rssi, wifi_str)
@@ -386,7 +387,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
 
 # ============================================================================
-# 5. CRISP BAUHAUS RAIL 1-BIT SUPERSAMPLED BITMAP RENDERER (400x300 Matrix)
+# 5. ULTRA-HD 3x SUPERSAMPLED BITMAP RENDERER (400x300 Output)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -407,13 +408,13 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # 2x Master Canvas (800x600) for clean antialiasing before thresholding
-        img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
-        draw = ImageDraw.Draw(img_2x)
+        # 3x Ultra-High Resolution Canvas (1200x900)
+        img_3x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
+        draw = ImageDraw.Draw(img_3x)
 
-        # Crisp High-Legibility Typography
+        # Crisp Scaled Typography
         f_logo = safe_font(FONT_MAP["english"], 14)
-        f_cuisine = safe_font(FONT_MAP["english_sub"], 10)
+        f_cuisine_tag = safe_font(FONT_MAP["english_sub"], 10)
         f_date = safe_font(FONT_MAP["english"], 12)
         f_badge = safe_font(FONT_MAP["english_sub"], 11)
         f_time = safe_font(FONT_MAP["english"], 11)
@@ -421,89 +422,96 @@ def render_display():
         f_prep_title = safe_font(FONT_MAP["english"], 10)
 
         # --------------------------------------------------------------------
-        # 1. NON-OVERLAPPING SOLID BLACK HEADER (y: 0 to 34px)
+        # 1. 3-ZONE ZERO-COLLISION HEADER BAR (y: 0 to 36px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 0, CANVAS_W - 1, 34 * SCALE], fill=0)
+        draw.rectangle([0, 0, CANVAS_W - 1, 36 * SCALE], fill=0)
 
-        # [Zone 1: x=8 to 155] Logo + Cuisine
-        draw.text((8 * SCALE, 10 * SCALE), "MealSync", font=f_logo, fill=255)
-        cuisine_text = f"• {data['cuisine'].upper()[:14]}"
-        draw.text((78 * SCALE, 12 * SCALE), cuisine_text, font=f_cuisine, fill=210)
+        # ZONE 1: BRAND LOGO (Left Aligned: x = 10px)
+        draw.text((10 * SCALE, 10 * SCALE), "MealSync", font=f_logo, fill=255)
 
-        # [Zone 2: x=160 to 290] Today's Date
+        # ZONE 2: CENTER PILL & DATE (x: 130px to 275px)
+        cuisine_clean = data["cuisine"].upper()[:14]
+        c_w = get_text_width(f_cuisine_tag, cuisine_clean)
+        pill_x = 135 * SCALE
+        draw.rectangle([pill_x, 6 * SCALE, pill_x + c_w + (8 * SCALE), 18 * SCALE], fill=255)
+        draw.text((pill_x + (4 * SCALE), 7 * SCALE), cuisine_clean, font=f_cuisine_tag, fill=0)
+
+        # Date directly underneath centered in Zone 2
         d_w = get_text_width(f_date, date_str)
         date_x = (CANVAS_W - d_w) // 2
-        draw.text((date_x, 10 * SCALE), date_str, font=f_date, fill=255)
+        draw.text((date_x, 20 * SCALE), date_str, font=f_date, fill=255)
 
-        # [Zone 3: x=295 to 392] Wi-Fi + Battery Label + Battery Icon
+        # ZONE 3: RIGHT HARDWARE TELEMETRY (x: 295px to 392px)
+        # 3-Bar Wi-Fi Signal Ladder
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = 300 * SCALE, 12 * SCALE
-        draw.rectangle([wifiX, wifiY + 8 * SCALE, wifiX + 2 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 4 * SCALE, wifiY + 5 * SCALE, wifiX + 6 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 8 * SCALE, wifiY + 2 * SCALE, wifiX + 10 * SCALE, wifiY + 12 * SCALE], fill=255 if signal_bars >= 3 else 0)
+        wifiX, wifiY = 300 * SCALE, 14 * SCALE
+        draw.rectangle([wifiX, wifiY + (8 * SCALE), wifiX + (2 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + (4 * SCALE), wifiY + (5 * SCALE), wifiX + (6 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + (8 * SCALE), wifiY + (2 * SCALE), wifiX + (10 * SCALE), wifiY + (12 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
-        # Battery Label (e.g., "425d")
+        # Exact Battery Days Label
         b_lbl_w = get_text_width(f_badge, batt_str)
         bat_text_x = (362 * SCALE) - b_lbl_w
-        draw.text((bat_text_x, 10 * SCALE), batt_str, font=f_badge, fill=255)
+        draw.text((bat_text_x, 11 * SCALE), batt_str, font=f_badge, fill=255)
 
-        # Battery Icon
-        batX, batY = 368 * SCALE, 10 * SCALE
-        draw.rectangle([batX, batY, batX + 22 * SCALE, batY + 13 * SCALE], outline=255, width=SCALE)
-        draw.rectangle([batX + 22 * SCALE, batY + 3 * SCALE, batX + 24 * SCALE, batY + 10 * SCALE], fill=255)
+        # Battery Icon Container
+        batX, batY = 368 * SCALE, 11 * SCALE
+        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (13 * SCALE)], outline=255, width=SCALE)
+        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (10 * SCALE)], fill=255)
         fill_w = max(0, min(18 * SCALE, int((batt_pct / 100.0) * 18 * SCALE)))
         if fill_w > 0:
-            draw.rectangle([batX + 2 * SCALE, batY + 2 * SCALE, batX + 2 * SCALE + fill_w, batY + 11 * SCALE], fill=255)
+            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (11 * SCALE)], fill=255)
 
         # --------------------------------------------------------------------
-        # 2. BAUHAUS RAIL TIMELINE (y: 35 to 218px)
+        # 2. BAUHAUS RAIL TIMELINE (y: 38 to 218px)
         # --------------------------------------------------------------------
         rail_x = 76 * SCALE
-        draw.line([(rail_x, 42 * SCALE), (rail_x, 212 * SCALE)], fill=0, width=SCALE)
+        draw.line([(rail_x, 44 * SCALE), (rail_x, 214 * SCALE)], fill=0, width=SCALE)
 
-        # --- BREAKFAST ---
-        draw.text((8 * SCALE, 48 * SCALE), "08:30", font=f_time, fill=0)
-        draw.text((8 * SCALE, 62 * SCALE), "AM", font=f_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 54 * SCALE, rail_x + 3 * SCALE, 60 * SCALE], fill=0)
+        # --- SLOT 1: BREAKFAST ---
+        draw.text((10 * SCALE, 48 * SCALE), "08:30", font=f_time, fill=0)
+        draw.text((10 * SCALE, 62 * SCALE), "AM", font=f_time, fill=0)
+        draw.ellipse([rail_x - (3 * SCALE), 54 * SCALE, rail_x + (3 * SCALE), 60 * SCALE], fill=0)
 
-        draw.rectangle([86 * SCALE, 42 * SCALE, 172 * SCALE, 56 * SCALE], fill=0)
+        # Inverted Category Pill
+        draw.rectangle([86 * SCALE, 42 * SCALE, 175 * SCALE, 56 * SCALE], fill=0)
         draw.text((90 * SCALE, 44 * SCALE), "BREAKFAST", font=f_cat, fill=255)
         draw_autofit_text(draw, data["breakfast"], 86, 60, 304, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
         draw.line([(86 * SCALE, 95 * SCALE), (392 * SCALE, 95 * SCALE)], fill=200, width=SCALE)
 
-        # --- LUNCH ---
-        draw.text((8 * SCALE, 104 * SCALE), "01:00", font=f_time, fill=0)
-        draw.text((8 * SCALE, 118 * SCALE), "PM", font=f_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 110 * SCALE, rail_x + 3 * SCALE, 116 * SCALE], fill=0)
+        # --- SLOT 2: LUNCH ---
+        draw.text((10 * SCALE, 104 * SCALE), "01:00", font=f_time, fill=0)
+        draw.text((10 * SCALE, 118 * SCALE), "PM", font=f_time, fill=0)
+        draw.ellipse([rail_x - (3 * SCALE), 110 * SCALE, rail_x + (3 * SCALE), 116 * SCALE], fill=0)
 
-        draw.rectangle([86 * SCALE, 98 * SCALE, 142 * SCALE, 112 * SCALE], fill=0)
+        draw.rectangle([86 * SCALE, 98 * SCALE, 145 * SCALE, 112 * SCALE], fill=0)
         draw.text((90 * SCALE, 100 * SCALE), "LUNCH", font=f_cat, fill=255)
         draw_autofit_text(draw, data["lunch"], 86, 116, 304, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
         draw.line([(86 * SCALE, 153 * SCALE), (392 * SCALE, 153 * SCALE)], fill=200, width=SCALE)
 
-        # --- DINNER ---
-        draw.text((8 * SCALE, 162 * SCALE), "08:30", font=f_time, fill=0)
-        draw.text((8 * SCALE, 176 * SCALE), "PM", font=f_time, fill=0)
-        draw.ellipse([rail_x - 3 * SCALE, 168 * SCALE, rail_x + 3 * SCALE, 174 * SCALE], fill=0)
+        # --- SLOT 3: DINNER ---
+        draw.text((10 * SCALE, 162 * SCALE), "08:30", font=f_time, fill=0)
+        draw.text((10 * SCALE, 176 * SCALE), "PM", font=f_time, fill=0)
+        draw.ellipse([rail_x - (3 * SCALE), 168 * SCALE, rail_x + (3 * SCALE), 174 * SCALE], fill=0)
 
-        draw.rectangle([86 * SCALE, 156 * SCALE, 146 * SCALE, 170 * SCALE], fill=0)
+        draw.rectangle([86 * SCALE, 156 * SCALE, 150 * SCALE, 170 * SCALE], fill=0)
         draw.text((90 * SCALE, 158 * SCALE), "DINNER", font=f_cat, fill=255)
         draw_autofit_text(draw, data["dinner"], 86, 174, 304, 34, max_size=15, min_size=11, max_lines=2, fill_color=0)
 
-        # Section Divider
+        # Solid Divider Line before Tasks
         draw.line([(0, 218 * SCALE), (CANVAS_W, 218 * SCALE)], fill=0, width=2 * SCALE)
 
         # --------------------------------------------------------------------
-        # 3. DUAL-COLUMN PREP SECTION (y: 222 to 294px)
+        # 3. DUAL-COLUMN TASK CARDS (y: 222 to 294px)
         # --------------------------------------------------------------------
-        # Left Card: TODAY'S PREP
+        # Column 1: TODAY'S PREP (Left)
         draw.rectangle([6 * SCALE, 222 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([6 * SCALE, 222 * SCALE, 196 * SCALE, 238 * SCALE], fill=0)
         draw.text((10 * SCALE, 224 * SCALE), "TODAY'S PREP", font=f_prep_title, fill=255)
         draw.rectangle([12 * SCALE, 246 * SCALE, 22 * SCALE, 256 * SCALE], outline=0, width=SCALE)
         draw_autofit_text(draw, data["task1"], 26, 244, 166, 46, max_size=12, min_size=10, max_lines=3, fill_color=0)
 
-        # Right Card: TOMORROW'S PREP
+        # Column 2: TOMORROW'S PREP (Right)
         draw.rectangle([202 * SCALE, 222 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
         draw.rectangle([202 * SCALE, 222 * SCALE, 394 * SCALE, 238 * SCALE], fill=0)
         draw.text((206 * SCALE, 224 * SCALE), "TOMORROW'S PREP", font=f_prep_title, fill=255)
@@ -513,10 +521,10 @@ def render_display():
         # Outer Frame
         draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # High-order Downscale to 400x300 and clean thresholding
+        # Downsample to 400x300 via Lanczos interpolation
         resample_mode = Image.LANCZOS if hasattr(Image, 'LANCZOS') else getattr(Image, 'ANTIALIAS', 1)
-        img_downscaled = img_2x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 155 else 0, mode="1")
+        img_downscaled = img_3x.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=resample_mode)
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 150 else 0, mode="1")
 
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
@@ -552,7 +560,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <div class="status">● Active & Synchronized (Option A: Bauhaus Rail)</div>
+            <div class="status">● Active & Synchronized (Ultra-HD 3x Bauhaus Rail)</div>
             <div>
                 <span class="badge">Battery: {telem['battery_label']} ({telem['battery_pct']}%)</span>
                 <span class="badge">Wi-Fi: {telem['wifi_strength']}</span>
