@@ -527,3 +527,27 @@ def home():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+# Add to FONT_DOWNLOAD_URLS
+EXTRA_FONT_URLS = {
+    # Retro / Pixel
+    "Silkscreen-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/silkscreen/Silkscreen-Bold.ttf",
+    "VT323-Regular.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/vt323/VT323-Regular.ttf",
+    
+    # Technical Mono
+    "IBMPlexMono-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
+    "FiraCode-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/firacode/FiraCode-Bold.ttf",
+    
+    # Modern Sans / Display
+    "PlusJakartaSans-ExtraBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/plusjakartasans/PlusJakartaSans-ExtraBold.ttf",
+    "Outfit-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/outfit/Outfit-Bold.ttf"
+}
+
+# Add to CHROME_FONTS dictionary
+CHROME_FONTS.update({
+    "silkscreen": ("Silkscreen-Bold.ttf", "Silkscreen (Pixel/Grid)"),
+    "vt323": ("VT323-Regular.ttf", "VT323 (Terminal Retro)"),
+    "ibmplex": ("IBMPlexMono-Bold.ttf", "IBM Plex Mono (Sharp Tech)"),
+    "firacode": ("FiraCode-Bold.ttf", "Fira Code (Wide Mono)"),
+    "jakarta": ("PlusJakartaSans-ExtraBold.ttf", "Plus Jakarta (Modern Sans)"),
+    "outfit": ("Outfit-Bold.ttf", "Outfit (Geometric Display)")
+})
