@@ -17,7 +17,7 @@ PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
 
 # ============================================================================
-# 1. CORS & HEADERS
+# 1. CORS & CACHE HEADERS
 # ============================================================================
 @app.after_request
 def add_cors_and_cache_headers(response):
@@ -27,33 +27,18 @@ def add_cors_and_cache_headers(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
-# Add ProFont to your font dictionary
+# ============================================================================
+# 2. HYBRID FONT ENGINE (ProFont for UI + Noto Sans for Regional Scripts)
+# ============================================================================
 FONT_FILES = {
     "profont": "ProFontIIx.ttf",
-    "latin": "DejaVuSans-Bold.ttf",
-    "devanagari": "NotoSansDevanagari-Bold.ttf",
-    "gujarati": "NotoSansGujarati-Bold.ttf"
+    "latin_bold": "DejaVuSans-Bold.ttf",
+    "devanagari_bold": "NotoSansDevanagari-Bold.ttf",
+    "gujarati_bold": "NotoSansGujarati-Bold.ttf"
 }
 
 FONT_DOWNLOAD_URLS = {
     "ProFontIIx.ttf": "https://raw.githubusercontent.com/alerque/profont/master/ProFontIIx.ttf",
-    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
-    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
-    "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
-}
-
-# ============================================================================
-# 2. BULLETPROOF UNIVERSAL FONTS
-# ============================================================================
-# DejaVuSans has complete Latin + symbol coverage without glyph corruption.
-# NotoSans handles Marathi (Devanagari) and Gujarati.
-FONT_FILES = {
-    "latin": "DejaVuSans-Bold.ttf",
-    "devanagari": "NotoSansDevanagari-Bold.ttf",
-    "gujarati": "NotoSansGujarati-Bold.ttf"
-}
-
-FONT_DOWNLOAD_URLS = {
     "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
     "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
     "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
@@ -68,28 +53,27 @@ def verify_and_fetch_fonts():
                     with open(filename, "wb") as f:
                         f.write(res.content)
             except Exception as e:
-                print(f"[FONT ENGINE] Could not download {filename}: {e}")
+                print(f"[FONT ENGINE] Error downloading {filename}: {e}")
 
 verify_and_fetch_fonts()
 
-def classify_script(char_or_token):
-    for ch in str(char_or_token):
+def classify_script(char_str):
+    for ch in str(char_str):
         cp = ord(ch)
         if 0x0900 <= cp <= 0x097F:
-            return "devanagari"
+            return "devanagari_bold"
         elif 0x0A80 <= cp <= 0x0AFF:
-            return "gujarati"
-    return "latin"
+            return "gujarati_bold"
+    return "latin_bold"
 
-def get_font_instance(script_key, size_px):
-    font_file = FONT_FILES.get(script_key, "DejaVuSans-Bold.ttf")
+def get_font_instance(font_key, size_px):
+    font_file = FONT_FILES.get(font_key, "DejaVuSans-Bold.ttf")
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
             return ImageFont.truetype(font_file, int(size_px))
     except Exception:
         pass
     
-    # System font fallbacks if local files missing
     fallbacks = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
@@ -103,15 +87,17 @@ def get_font_instance(script_key, size_px):
     return ImageFont.load_default()
 
 def measure_token(token, size_px):
-    script = classify_script(token)
-    font = get_font_instance(script, size_px)
+    script_key = classify_script(token)
+    font = get_font_instance(script_key, size_px)
     try:
         bbox = font.getbbox(str(token))
         return (bbox[2] - bbox[0]), font
     except Exception:
         return len(str(token)) * int(size_px * 0.6), font
 
-# Multilingual Auto-Wrapping
+# ============================================================================
+# 3. DYNAMIC SCRIPT-AWARE AUTO-FIT ENGINE
+# ============================================================================
 def segment_and_wrap(text, max_w, size_px):
     tokens = str(text).strip().split()
     if not tokens:
@@ -139,7 +125,7 @@ def segment_and_wrap(text, max_w, size_px):
         lines.append(current_line)
     return lines
 
-def draw_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size=11, max_lines=2, fill=0):
+def draw_autofit_multilingual_text(draw, text, x, y, max_w, max_h, max_size=18, min_size=11, max_lines=2, fill=0):
     text = str(text).strip()
     if not text:
         return
@@ -147,9 +133,10 @@ def draw_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size
     best_size = min_size
     best_lines = []
 
+    # Iterative stepped auto-fit to scale up to maximum available box size
     for s in range(max_size, min_size - 1, -1):
         test_lines = segment_and_wrap(text, max_w, s)
-        line_height = int(s * 1.30)
+        line_height = int(s * 1.28)
         if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h:
             best_size = s
             best_lines = test_lines
@@ -159,15 +146,15 @@ def draw_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size
         best_lines = segment_and_wrap(text, max_w, min_size)[:max_lines]
         best_size = min_size
 
-    line_height = int(best_size * 1.30)
+    line_height = int(best_size * 1.28)
     curr_y = y
     space_w, _ = measure_token(" ", best_size)
 
     for line in best_lines:
         curr_x = x
         for idx, (token, token_w) in enumerate(line):
-            script = classify_script(token)
-            font = get_font_instance(script, best_size)
+            script_key = classify_script(token)
+            font = get_font_instance(script_key, best_size)
             draw.text((curr_x, curr_y), token, font=font, fill=fill)
             curr_x += token_w
             if idx < len(line) - 1:
@@ -175,7 +162,7 @@ def draw_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size
         curr_y += line_height
 
 # ============================================================================
-# 3. DATABASE
+# 4. DATABASE & STATE MANAGEMENT
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -289,7 +276,7 @@ def get_target_menu_data():
     return date_str, data
 
 # ============================================================================
-# 4. APIS
+# 5. REST APIS & HARDWARE SYNC
 # ============================================================================
 @app.route('/hash', methods=['GET', 'HEAD'])
 def get_content_hash():
@@ -361,7 +348,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 5. EXACT SIMULATOR 1-BIT RENDERER (Native 1:1, Zero Blur, Zero Inversion Flaws)
+# 6. E-PAPER RASTER ENGINE (Native 1-Bit Mode "1")
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -382,27 +369,33 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # Mode "1": 1-bit monochrome (0 = Black Ink, 1 = White Background)
+        # Mode "1": Native 1-bit monochrome (0 = Black Ink, 1 = White Background)
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        f_logo = get_font_instance("latin", 14)
-        f_date = get_font_instance("latin", 11)
-        f_badge = get_font_instance("latin", 10.5)
-        f_cuisine_strip = get_font_instance("latin", 9.5)
-        f_cat = get_font_instance("latin", 9.5)
-        f_task_hdr = get_font_instance("latin", 10)
+        # Crisp ProFont for System Chrome
+        f_logo = get_font_instance("profont", 14)
+        f_date = get_font_instance("profont", 11)
+        f_badge = get_font_instance("profont", 10)
+        f_cuisine_strip = get_font_instance("profont", 10)
+        f_cat = get_font_instance("profont", 10)
+        f_task_hdr = get_font_instance("profont", 10)
 
         # --------------------------------------------------------------------
-        # 1. TOP HEADER (y: 0 to 28px) - Solid Black Bar (fill=0)
+        # 1. TOP SYSTEM BAR (y: 0 to 28px) - Solid Black (fill=0)
         # --------------------------------------------------------------------
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 28], fill=0)
         draw.text((8, 7), "MealSync", font=f_logo, fill=1)
 
-        d_w, _ = measure_token(date_str, 11)
+        # Centered Date
+        try:
+            d_bbox = f_date.getbbox(date_str)
+            d_w = d_bbox[2] - d_bbox[0]
+        except Exception:
+            d_w = len(date_str) * 6
         draw.text(((PANEL_WIDTH - d_w) // 2, 8), date_str, font=f_date, fill=1)
 
-        # Right Telemetry
+        # Battery Box & Level
         batX, batY = 368, 8
         draw.rectangle([batX, batY, batX + 22, batY + 12], outline=1, width=1)
         draw.rectangle([batX + 22, batY + 3, batX + 24, batY + 9], fill=1)
@@ -410,10 +403,15 @@ def render_display():
         if fill_w > 0:
             draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 10], fill=1)
 
-        b_lbl_w, _ = measure_token(batt_str, 10.5)
+        try:
+            b_bbox = f_badge.getbbox(batt_str)
+            b_lbl_w = b_bbox[2] - b_bbox[0]
+        except Exception:
+            b_lbl_w = len(batt_str) * 6
         bat_text_x = batX - b_lbl_w - 5
         draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
+        # 3-Bar Ladder Wi-Fi
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = bat_text_x - 16, 8
         draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
@@ -428,23 +426,28 @@ def render_display():
         draw.text((8, 30), cuisine_full, font=f_cuisine_strip, fill=1)
 
         # --------------------------------------------------------------------
-        # 3. TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 222px)
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 222px)
         # --------------------------------------------------------------------
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            # Bullet node
+            # Circular Node
             draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
-            # Solid black category box
-            cat_w, _ = measure_token(category, 9.5)
+            # Solid Black Inverted Category Badge
+            try:
+                c_bbox = f_cat.getbbox(category)
+                cat_w = c_bbox[2] - c_bbox[0]
+            except Exception:
+                cat_w = len(category) * 6
             draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
             draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
-            # Crisp Multilingual dish text (Black on white)
-            draw_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=14, min_size=11, max_lines=2, fill=0)
+            # Dynamic Auto-Fit Regional Dish Text (Scales 12px to 17px)
+            draw_autofit_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=17, min_size=12, max_lines=2, fill=0)
             
+            # Row Separator
             div_y = y_start + row_h
             draw.line([(28, div_y), (PANEL_WIDTH - 8, div_y)], fill=0, width=1)
 
@@ -452,7 +455,7 @@ def render_display():
         draw_meal_slot("LUNCH", data["lunch"], 106, 112, 54)
         draw_meal_slot("DINNER", data["dinner"], 164, 170, 54)
 
-        # Section Divider before Tasks
+        # Tasks Section Divider
         draw.line([(0, 222), (PANEL_WIDTH, 222)], fill=0, width=2)
 
         # --------------------------------------------------------------------
@@ -463,29 +466,26 @@ def render_display():
         draw.rectangle([6, 226, 196, 241], fill=0)
         draw.text((10, 227), "TODAY'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([12, 248, 22, 258], outline=0, width=1)
-        draw_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw_autofit_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=13, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
         draw.rectangle([202, 226, 394, 294], outline=0, width=1)
         draw.rectangle([202, 226, 394, 241], fill=0)
         draw.text((206, 227), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([208, 248, 218, 258], outline=0, width=1)
-        draw_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=12, min_size=10, max_lines=3, fill=0)
+        draw_autofit_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=13, min_size=10, max_lines=3, fill=0)
 
-        # Perimeter Frame
+        # Outer Frame
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
         # ====================================================================
-        # HARDWARE-ALIGNED BYTE PACKER
-        # GxEPD2 expects 1 = Black Ink, 0 = White Background for drawBitmap
-        # Mode "1" in PIL uses 0 = Black, 1 = White.
-        # We invert the bits once so ESP32 receives exact active-high black pixels.
+        # HARDWARE-ALIGNED PACKER (SSD1683: 1 = Black Ink, 0 = White)
         # ====================================================================
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = img.point(lambda p: 0 if p else 1, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Web browser preview
+        # Browser Preview
         buf = io.BytesIO()
         img.save(buf, format='BMP')
         buf.seek(0)
