@@ -28,7 +28,7 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. HYBRID FONT ENGINE (ProFont for UI + Noto Sans for Regional Scripts)
+# 2. FONT ROSTER (ProFont for Chrome + Noto Sans for Regional Scripts)
 # ============================================================================
 FONT_FILES = {
     "profont": "ProFontIIx.ttf",
@@ -96,7 +96,7 @@ def measure_token(token, size_px):
         return len(str(token)) * int(size_px * 0.6), font
 
 # ============================================================================
-# 3. DYNAMIC SCRIPT-AWARE AUTO-FIT ENGINE
+# 3. UNIFORM MULTILINGUAL TEXT WRAPPER & RENDERER
 # ============================================================================
 def segment_and_wrap(text, max_w, size_px):
     tokens = str(text).strip().split()
@@ -125,36 +125,32 @@ def segment_and_wrap(text, max_w, size_px):
         lines.append(current_line)
     return lines
 
-def draw_autofit_multilingual_text(draw, text, x, y, max_w, max_h, max_size=18, min_size=11, max_lines=2, fill=0):
-    text = str(text).strip()
-    if not text:
-        return
+def determine_uniform_meal_font_size(meals, max_w, max_h, target_size=14, min_size=11):
+    """Calculates a single uniform font size that allows ALL meals to fit cleanly without deviation."""
+    for s in range(target_size, min_size - 1, -1):
+        line_height = int(s * 1.30)
+        fits_all = True
+        for m in meals:
+            lines = segment_and_wrap(m, max_w, s)
+            if len(lines) > 2 or (len(lines) * line_height) > max_h:
+                fits_all = False
+                break
+        if fits_all:
+            return s
+    return min_size
 
-    best_size = min_size
-    best_lines = []
-
-    # Iterative stepped auto-fit to scale up to maximum available box size
-    for s in range(max_size, min_size - 1, -1):
-        test_lines = segment_and_wrap(text, max_w, s)
-        line_height = int(s * 1.28)
-        if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h:
-            best_size = s
-            best_lines = test_lines
-            break
-
-    if not best_lines:
-        best_lines = segment_and_wrap(text, max_w, min_size)[:max_lines]
-        best_size = min_size
-
-    line_height = int(best_size * 1.28)
+def draw_uniform_multilingual_text(draw, text, x, y, max_w, size_px, max_lines=2, fill=0):
+    """Draws multi-script text strictly locked to the uniform size_px."""
+    lines = segment_and_wrap(text, max_w, size_px)[:max_lines]
+    line_height = int(size_px * 1.30)
     curr_y = y
-    space_w, _ = measure_token(" ", best_size)
+    space_w, _ = measure_token(" ", size_px)
 
-    for line in best_lines:
+    for line in lines:
         curr_x = x
         for idx, (token, token_w) in enumerate(line):
             script_key = classify_script(token)
-            font = get_font_instance(script_key, best_size)
+            font = get_font_instance(script_key, size_px)
             draw.text((curr_x, curr_y), token, font=font, fill=fill)
             curr_x += token_w
             if idx < len(line) - 1:
@@ -348,7 +344,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 6. E-PAPER RASTER ENGINE (Native 1-Bit Mode "1")
+# 6. UNIFORM 1-BIT MONOCHROME E-PAPER RENDERER
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -373,7 +369,7 @@ def render_display():
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        # Crisp ProFont for System Chrome
+        # Locked Sizes for All Chrome & Labels
         f_logo = get_font_instance("profont", 14)
         f_date = get_font_instance("profont", 11)
         f_badge = get_font_instance("profont", 10)
@@ -411,7 +407,7 @@ def render_display():
         bat_text_x = batX - b_lbl_w - 5
         draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
-        # 3-Bar Ladder Wi-Fi
+        # 3-Bar Wi-Fi Indicator
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = bat_text_x - 16, 8
         draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
@@ -426,16 +422,25 @@ def render_display():
         draw.text((8, 30), cuisine_full, font=f_cuisine_strip, fill=1)
 
         # --------------------------------------------------------------------
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 222px)
+        # 3. UNIFORM MEALS SECTION (y: 46 to 222px)
         # --------------------------------------------------------------------
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
+        # Calculate a single uniform font size across ALL meals (default 14px)
+        uniform_meal_font_size = determine_uniform_meal_font_size(
+            [data["breakfast"], data["lunch"], data["dinner"]],
+            max_w=364,
+            max_h=35,
+            target_size=14,
+            min_size=11
+        )
+
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            # Circular Node
+            # Circular Timeline Node
             draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
-            # Solid Black Inverted Category Badge
+            # Uniform Black Category Badge
             try:
                 c_bbox = f_cat.getbbox(category)
                 cat_w = c_bbox[2] - c_bbox[0]
@@ -444,8 +449,8 @@ def render_display():
             draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
             draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
-            # Dynamic Auto-Fit Regional Dish Text (Scales 12px to 17px)
-            draw_autofit_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=17, min_size=12, max_lines=2, fill=0)
+            # Render at exact identical font size across Breakfast, Lunch, and Dinner
+            draw_uniform_multilingual_text(draw, dish_text, 28, y_start + 17, 364, uniform_meal_font_size, max_lines=2, fill=0)
             
             # Row Separator
             div_y = y_start + row_h
@@ -455,27 +460,30 @@ def render_display():
         draw_meal_slot("LUNCH", data["lunch"], 106, 112, 54)
         draw_meal_slot("DINNER", data["dinner"], 164, 170, 54)
 
-        # Tasks Section Divider
+        # Divider Before Tasks
         draw.line([(0, 222), (PANEL_WIDTH, 222)], fill=0, width=2)
 
         # --------------------------------------------------------------------
-        # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
+        # 4. UNIFORM DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
+        # Locked to a uniform 11.5px for both cards
+        TASK_FONT_SIZE = 11.5
+
         # Left Card: TODAY'S PREP
         draw.rectangle([6, 226, 196, 294], outline=0, width=1)
         draw.rectangle([6, 226, 196, 241], fill=0)
         draw.text((10, 227), "TODAY'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([12, 248, 22, 258], outline=0, width=1)
-        draw_autofit_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=13, min_size=10, max_lines=3, fill=0)
+        draw_uniform_multilingual_text(draw, data["task1"], 26, 245, 166, TASK_FONT_SIZE, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
         draw.rectangle([202, 226, 394, 294], outline=0, width=1)
         draw.rectangle([202, 226, 394, 241], fill=0)
         draw.text((206, 227), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([208, 248, 218, 258], outline=0, width=1)
-        draw_autofit_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=13, min_size=10, max_lines=3, fill=0)
+        draw_uniform_multilingual_text(draw, data["task2"], 222, 245, 168, TASK_FONT_SIZE, max_lines=3, fill=0)
 
-        # Outer Frame
+        # Perimeter Frame
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
         # ====================================================================
