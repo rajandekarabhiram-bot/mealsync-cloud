@@ -125,7 +125,7 @@ def segment_and_wrap(text, max_w, size_px):
         lines.append(current_line)
     return lines
 
-def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_size=10, max_allowed_lines=2):
+def determine_uniform_font_size(text_items, max_w, max_h, target_size=17, min_size=12, max_allowed_lines=2):
     """
     Calculates a single uniform integer font size so that ALL items in the group
     fit cleanly within their respective max width/height boundaries.
@@ -134,7 +134,7 @@ def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_si
     m_size = int(round(min_size))
 
     for s in range(t_size, m_size - 1, -1):
-        line_height = int(s * 1.30)
+        line_height = int(s * 1.28)
         fits_all = True
         for item in text_items:
             lines = segment_and_wrap(item, max_w, s)
@@ -148,7 +148,7 @@ def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_si
 def draw_uniform_multilingual_text(draw, text, x, y, max_w, size_px, max_lines=2, fill=0):
     size_int = int(round(size_px))
     lines = segment_and_wrap(text, max_w, size_int)[:max_lines]
-    line_height = int(size_int * 1.30)
+    line_height = int(size_int * 1.28)
     curr_y = y
     space_w, _ = measure_token(" ", size_int)
 
@@ -433,13 +433,13 @@ def render_display():
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
-        # Uniform Meals Font Size (Integer parameters)
+        # Target 17px for increased legibility across all meal descriptions
         uniform_meal_font_size = determine_uniform_font_size(
             [data["breakfast"], data["lunch"], data["dinner"]],
             max_w=364,
-            max_h=35,
-            target_size=14,
-            min_size=11,
+            max_h=37,
+            target_size=17,
+            min_size=13,
             max_allowed_lines=2
         )
 
@@ -456,7 +456,7 @@ def render_display():
             draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
             draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
-            # Render at exact identical font size across Breakfast, Lunch, and Dinner
+            # Render at enlarged identical font size across Breakfast, Lunch, and Dinner
             draw_uniform_multilingual_text(draw, dish_text, 28, y_start + 17, 364, uniform_meal_font_size, max_lines=2, fill=0)
             
             # Row Separator
@@ -473,13 +473,13 @@ def render_display():
         # --------------------------------------------------------------------
         # 4. UNIFORM DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
-        # Strict integer target_size=12 to prevent range() float TypeError
+        # Target 14px for enlarged legibility across both task cards
         uniform_task_font_size = determine_uniform_font_size(
             [data["task1"], data["task2"]],
             max_w=166,
-            max_h=45,
-            target_size=12,
-            min_size=10,
+            max_h=44,
+            target_size=14,
+            min_size=11,
             max_allowed_lines=3
         )
 
