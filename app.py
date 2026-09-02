@@ -27,6 +27,21 @@ def add_cors_and_cache_headers(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
+# Add ProFont to your font dictionary
+FONT_FILES = {
+    "profont": "ProFontIIx.ttf",
+    "latin": "DejaVuSans-Bold.ttf",
+    "devanagari": "NotoSansDevanagari-Bold.ttf",
+    "gujarati": "NotoSansGujarati-Bold.ttf"
+}
+
+FONT_DOWNLOAD_URLS = {
+    "ProFontIIx.ttf": "https://raw.githubusercontent.com/alerque/profont/master/ProFontIIx.ttf",
+    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
+    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
+    "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
+}
+
 # ============================================================================
 # 2. BULLETPROOF UNIVERSAL FONTS
 # ============================================================================
