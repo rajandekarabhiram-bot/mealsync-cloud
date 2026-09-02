@@ -28,18 +28,14 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. FONT ASSET ENGINE
+# 2. LOCKED FONT ASSET ENGINE
 # ============================================================================
 FONT_DOWNLOAD_URLS = {
-    # Content Fonts (Locked)
-    "JetBrainsMono-Bold.ttf": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/master/fonts/ttf/JetBrainsMono-Bold.ttf",
-    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
-    # Chrome Font Options
-    "ProFontIIx.ttf": "https://raw.githubusercontent.com/alerque/profont/master/ProFontIIx.ttf",
+    # System Chrome & Headers
     "Inter-ExtraBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-ExtraBold.ttf",
-    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
-    "SpaceMono-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacemono/SpaceMono-Bold.ttf",
-    "Rubik-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik-Bold.ttf"
+    # Content & Regional Fonts
+    "JetBrainsMono-Bold.ttf": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/master/fonts/ttf/JetBrainsMono-Bold.ttf",
+    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
 }
 
 def verify_and_fetch_fonts():
@@ -54,16 +50,6 @@ def verify_and_fetch_fonts():
                 print(f"[FONT ENGINE] Failed downloading {filename}: {e}")
 
 verify_and_fetch_fonts()
-
-# Chrome Typeface Options
-CHROME_FONTS = {
-    "profont": ("ProFontIIx.ttf", "ProFont (Retro Terminal)"),
-    "inter": ("Inter-ExtraBold.ttf", "Inter ExtraBold (Swiss Modern)"),
-    "jetbrains": ("JetBrainsMono-Bold.ttf", "JetBrains Mono (Unified Tech)"),
-    "dejavu": ("DejaVuSans-Bold.ttf", "DejaVu Sans Bold (Industrial)"),
-    "spacemono": ("SpaceMono-Bold.ttf", "Space Mono Bold (Geometric)"),
-    "rubik": ("Rubik-Bold.ttf", "Rubik Bold (Soft Grotesque)")
-}
 
 def classify_script(char_str):
     for ch in str(char_str):
@@ -80,12 +66,10 @@ def get_content_font(script_type, size_px):
         pass
     return ImageFont.load_default()
 
-def get_chrome_font(font_key, size_px):
-    font_info = CHROME_FONTS.get(font_key.lower(), CHROME_FONTS["profont"])
-    font_file = font_info[0]
+def get_chrome_font(size_px):
     try:
-        if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
-            return ImageFont.truetype(font_file, int(round(size_px)))
+        if os.path.exists("Inter-ExtraBold.ttf") and os.path.getsize("Inter-ExtraBold.ttf") > 5000:
+            return ImageFont.truetype("Inter-ExtraBold.ttf", int(round(size_px)))
     except Exception:
         pass
     return ImageFont.load_default()
@@ -204,7 +188,6 @@ def init_db():
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_cuisine', 'Maharashtrian')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_diet', 'VEG')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('forced_display_day', 'AUTO')")
-        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('chrome_font', 'profont')")
         conn.execute("""
             INSERT OR IGNORE INTO device_telemetry (id, battery_pct, battery_label, voltage, rssi, wifi_strength, last_seen)
             VALUES (1, 86, '430d', 4.10, -78, 'Good (2/3)', 'Online')
@@ -284,12 +267,11 @@ def get_target_menu_data():
 @app.route('/hash', methods=['GET', 'HEAD'])
 def get_content_hash():
     sync_ver = get_setting("sync_version", "1")
-    chrome_f = get_setting("chrome_font", "profont")
     date_str, data = get_target_menu_data()
-    payload = f"{sync_ver}|{chrome_f}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
+    payload = f"{sync_ver}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
     
-    response = jsonify({"hash": content_hash, "sync_version": int(sync_ver), "day": data['day'], "chrome_font": chrome_f})
+    response = jsonify({"hash": content_hash, "sync_version": int(sync_ver), "day": data['day']})
     response.headers["ETag"] = content_hash
     return response, 200
 
@@ -300,18 +282,47 @@ def api_telemetry():
     telem = get_telemetry()
     return jsonify({"status": "online", **telem}), 200
 
-@app.route('/api/set-chrome-font', methods=['POST'])
-def set_chrome_font():
+@app.route('/api/menu', methods=['GET', 'POST', 'OPTIONS'])
+def api_menu_handler():
+    if request.method == 'OPTIONS':
+        return Response(status=200)
+    if request.method == 'GET':
+        with get_db() as conn:
+            rows = conn.execute("SELECT * FROM weekly_menu").fetchall()
+            return jsonify({
+                "menu": [dict(ix) for ix in rows],
+                "active_cuisine": get_setting("active_cuisine", "Maharashtrian"),
+                "active_diet": get_setting("active_diet", "VEG"),
+                "sync_version": int(get_setting("sync_version", "1"))
+            }), 200
+
     req = request.get_json(force=True)
-    font_choice = req.get("font")
-    if font_choice and font_choice in CHROME_FONTS:
-        set_setting("chrome_font", font_choice)
-        increment_sync_version()
-        return jsonify({"status": "updated", "chrome_font": font_choice}), 200
-    return jsonify({"error": "invalid font"}), 400
+    day = req.get("day_name")
+    cuisine = req.get("cuisine")
+    diet = req.get("diet")
+    if cuisine: set_setting("active_cuisine", cuisine)
+    if diet: set_setting("active_diet", diet)
+    if day: set_setting("forced_display_day", day)
+
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO weekly_menu (day_name, breakfast, lunch, dinner, task1, task2)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(day_name) DO UPDATE SET
+                breakfast = excluded.breakfast, lunch = excluded.lunch,
+                dinner = excluded.dinner, task1 = excluded.task1, task2 = excluded.task2
+        """, (day, str(req.get("breakfast", "")).replace("+", ","),
+              str(req.get("lunch", "")).replace("+", ","),
+              str(req.get("dinner", "")).replace("+", ","),
+              str(req.get("task1", "")).replace("+", ","),
+              str(req.get("task2", "")).replace("+", ",")))
+        conn.commit()
+
+    new_ver = increment_sync_version()
+    return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 6. UNIFORM 1-BIT RENDERER (Configurable Chrome Fonts)
+# 6. UNIFORM 1-BIT MONOCHROME E-PAPER RENDERER
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -322,10 +333,6 @@ def render_display():
         verify_and_fetch_fonts()
         date_str, data = get_target_menu_data()
         telem = get_telemetry()
-
-        chrome_choice = request.args.get('chrome', get_setting("chrome_font", "profont")).lower()
-        if chrome_choice not in CHROME_FONTS:
-            chrome_choice = "profont"
 
         rssi = int(request.args.get('rssi', telem["rssi"]))
         batt_pct = int(request.args.get('pct', telem["battery_pct"]))
@@ -340,25 +347,25 @@ def render_display():
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        # Dynamic Chrome Fonts
-        f_logo = get_chrome_font(chrome_choice, 14.5)
-        f_date = get_chrome_font(chrome_choice, 11)
-        f_badge = get_chrome_font(chrome_choice, 10)
-        f_cuisine_strip = get_chrome_font(chrome_choice, 9.5)
-        f_cat = get_chrome_font(chrome_choice, 9.5)
-        f_task_hdr = get_chrome_font(chrome_choice, 10)
+        # Inter ExtraBold for System Chrome (Increased MealSync logo font size)
+        f_logo = get_chrome_font(18)
+        f_date = get_chrome_font(11)
+        f_badge = get_chrome_font(10)
+        f_cuisine_strip = get_chrome_font(9.5)
+        f_cat = get_chrome_font(9.5)
+        f_task_hdr = get_chrome_font(10)
 
         # --------------------------------------------------------------------
         # 1. TOP SYSTEM BAR (y: 0 to 28px)
         # --------------------------------------------------------------------
         draw.rectangle([0, 0, PANEL_WIDTH - 1, 28], fill=0)
-        draw.text((8, 7), "MealSync", font=f_logo, fill=1)
+        draw.text((8, 4), "MealSync", font=f_logo, fill=1)
 
         d_bbox = f_date.getbbox(date_str)
         d_w = d_bbox[2] - d_bbox[0]
         draw.text(((PANEL_WIDTH - d_w) // 2, 8), date_str, font=f_date, fill=1)
 
-        # Battery Icon
+        # Battery Box
         batX, batY = 368, 8
         draw.rectangle([batX, batY, batX + 22, batY + 12], outline=1, width=1)
         draw.rectangle([batX + 22, batY + 3, batX + 24, batY + 9], fill=1)
@@ -371,7 +378,7 @@ def render_display():
         bat_text_x = batX - b_lbl_w - 5
         draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
-        # Wi-Fi Indicator
+        # Wi-Fi 3-Bar Indicator
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
         wifiX, wifiY = bat_text_x - 16, 8
         draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
@@ -382,7 +389,7 @@ def render_display():
         # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
         # --------------------------------------------------------------------
         draw.rectangle([0, 28, PANEL_WIDTH - 1, 44], fill=0)
-        cuisine_full = f"CHROME: {chrome_choice.upper()}  |  CUISINE: {data['cuisine'].upper()}"
+        cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
         draw.text((8, 30), cuisine_full, font=f_cuisine_strip, fill=1)
 
         # --------------------------------------------------------------------
@@ -391,7 +398,6 @@ def render_display():
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
-        # Target 18px size across all meals
         uniform_meal_font_size = determine_uniform_font_size(
             [data["breakfast"], data["lunch"], data["dinner"]],
             max_w=364,
@@ -402,16 +408,13 @@ def render_display():
         )
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            # Circular Node
             draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
-            # Inverted Category Pill using selected Chrome Font
             c_bbox = f_cat.getbbox(category)
             cat_w = c_bbox[2] - c_bbox[0]
             draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
             draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
-            # Content rendered via locked JetBrains Mono + Noto Sans Devanagari
             draw_uniform_text(draw, dish_text, 28, y_start + 17, 364, uniform_meal_font_size, max_lines=2, fill=0)
             
             div_y = y_start + row_h
@@ -449,14 +452,15 @@ def render_display():
         draw.rectangle([208, 248, 218, 258], outline=0, width=1)
         draw_uniform_text(draw, data["task2"], 222, 245, 168, uniform_task_font_size, max_lines=3, fill=0)
 
-        # Outer Frame
+        # Outer perimeter frame
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # Active-High packed bytes for SSD1683 (1 = Black Ink)
+        # Active-High packed byte format (1 = Black Ink for SSD1683)
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
             img_epd = img.point(lambda p: 0 if p else 1, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
+        # Browser preview
         buf = io.BytesIO()
         img.save(buf, format='BMP')
         buf.seek(0)
@@ -466,88 +470,36 @@ def render_display():
         traceback.print_exc()
         return f"Internal Error: {err}", 500
 
-# ============================================================================
-# 7. INTERACTIVE CHROME TYPOGRAPHY CONTROLLER
-# ============================================================================
 @app.route('/')
 def home():
-    current_chrome = get_setting("chrome_font", "profont")
-    
-    font_buttons = "".join([
-        f'<button class="btn {"active" if current_chrome == k else ""}" onclick="setChromeFont(\'{k}\')">{v[1]}</button>'
-        for k, v in CHROME_FONTS.items()
-    ])
-
-    html = f"""
+    telem = get_telemetry()
+    return render_template_string("""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>MealSync Chrome Font Finalizer</title>
+        <title>MealSync Production Stream</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; text-align: center; }}
-            .card {{ background: #1e293b; max-width: 580px; margin: 0 auto; padding: 24px; border-radius: 16px; border: 1px solid #334155; }}
-            .btn {{ padding: 10px 14px; margin: 4px; border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer; border: 1px solid #475569; background: #334155; color: #f8fafc; transition: 0.15s; }}
-            .btn.active {{ background: #0284c7; border-color: #38bdf8; color: #ffffff; box-shadow: 0 0 10px rgba(56,189,248,0.3); }}
-            img {{ max-width: 100%; border-radius: 8px; margin-top: 18px; border: 2px solid #475569; }}
-            .section {{ margin-top: 16px; text-align: left; }}
-            .section h4 {{ margin: 6px 0; font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }}
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 30px; text-align: center; }
+            .card { background: #1e293b; max-width: 500px; margin: 0 auto; padding: 24px; border-radius: 16px; border: 1px solid #334155; }
+            img { max-width: 100%; border-radius: 8px; margin-top: 16px; border: 1px solid #475569; }
+            .badge { display: inline-block; background: #334155; padding: 6px 12px; border-radius: 8px; font-size: 13px; margin: 4px; }
         </style>
-        <script>
-            async function setChromeFont(font) {{
-                await fetch('/api/set-chrome-font', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ font: font }})
-                }});
-                location.reload();
-            }}
-        </script>
     </head>
     <body>
         <div class="card">
-            <h2>🔤 Header & Chrome Typography Tester</h2>
-            <p style="font-size: 12px; color: #94a3b8;">
-                Content locked to: <b>JetBrains Mono Bold + Noto Sans Devanagari Bold</b>.<br/>
-                Click a typeface below to evaluate system labels & headers on your physical display.
-            </p>
-            
-            <div class="section">
-                <h4>Choose Header & Label Typeface:</h4>
-                {font_buttons}
+            <h2>🍳 MealSync Production Display</h2>
+            <div>
+                <span class="badge">Battery: {{ telem['battery_label'] }} ({{ telem['battery_pct'] }}%)</span>
+                <span class="badge">Wi-Fi: {{ telem['wifi_strength'] }}</span>
+                <span class="badge">{{ telem['voltage'] }}V</span>
             </div>
-
-            <img src="/display.bmp?t={datetime.now().timestamp()}" alt="Screen Buffer" />
+            <img src="/display.bmp" alt="Live E-Paper Stream" />
         </div>
     </body>
     </html>
-    """
-    return render_template_string(html)
+    """, telem=telem)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-# Add to FONT_DOWNLOAD_URLS
-EXTRA_FONT_URLS = {
-    # Retro / Pixel
-    "Silkscreen-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/silkscreen/Silkscreen-Bold.ttf",
-    "VT323-Regular.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/vt323/VT323-Regular.ttf",
-    
-    # Technical Mono
-    "IBMPlexMono-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
-    "FiraCode-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/firacode/FiraCode-Bold.ttf",
-    
-    # Modern Sans / Display
-    "PlusJakartaSans-ExtraBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/plusjakartasans/PlusJakartaSans-ExtraBold.ttf",
-    "Outfit-Bold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/outfit/Outfit-Bold.ttf"
-}
-
-# Add to CHROME_FONTS dictionary
-CHROME_FONTS.update({
-    "silkscreen": ("Silkscreen-Bold.ttf", "Silkscreen (Pixel/Grid)"),
-    "vt323": ("VT323-Regular.ttf", "VT323 (Terminal Retro)"),
-    "ibmplex": ("IBMPlexMono-Bold.ttf", "IBM Plex Mono (Sharp Tech)"),
-    "firacode": ("FiraCode-Bold.ttf", "Fira Code (Wide Mono)"),
-    "jakarta": ("PlusJakartaSans-ExtraBold.ttf", "Plus Jakarta (Modern Sans)"),
-    "outfit": ("Outfit-Bold.ttf", "Outfit (Geometric Display)")
-})
