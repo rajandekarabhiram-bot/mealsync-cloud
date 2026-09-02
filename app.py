@@ -7,7 +7,7 @@ import requests
 import traceback
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file, render_template_string, jsonify
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -15,11 +15,6 @@ DB_FILE = "mealsync.db"
 
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
-SCALE = 2
-CANVAS_W = PANEL_WIDTH * SCALE   # 800px
-CANVAS_H = PANEL_HEIGHT * SCALE  # 600px
-
-# Strict character budget for prep cards
 MAX_PREP_CHARS = 65
 
 # ============================================================================
@@ -61,33 +56,31 @@ def classify_script(char_str):
             return "devanagari"
     return "latin"
 
-def get_content_font(script_type, size_1x):
+def get_content_font(script_type, size_px):
     font_file = "NotoSansDevanagari-Bold.ttf" if script_type == "devanagari" else "JetBrainsMono-Bold.ttf"
-    target_px = int(round(size_1x * SCALE))
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
-            return ImageFont.truetype(font_file, target_px)
+            return ImageFont.truetype(font_file, int(round(size_px)))
     except Exception:
         pass
     return ImageFont.load_default()
 
-def get_chrome_font(size_1x):
-    target_px = int(round(size_1x * SCALE))
+def get_chrome_font(size_px):
     try:
         if os.path.exists("Inter-ExtraBold.ttf") and os.path.getsize("Inter-ExtraBold.ttf") > 5000:
-            return ImageFont.truetype("Inter-ExtraBold.ttf", target_px)
+            return ImageFont.truetype("Inter-ExtraBold.ttf", int(round(size_px)))
     except Exception:
         pass
     return ImageFont.load_default()
 
-def measure_token(token, size_1x):
+def measure_token(token, size_px):
     script = classify_script(token)
-    font = get_content_font(script, size_1x)
+    font = get_content_font(script, size_px)
     try:
         bbox = font.getbbox(str(token))
         return (bbox[2] - bbox[0]), font
     except Exception:
-        return len(str(token)) * int(size_1x * SCALE * 0.6), font
+        return len(str(token)) * int(size_px * 0.6), font
 
 # ============================================================================
 # 3. TEXT WRAPPING & UNIFORM SIZING ENGINE
@@ -98,20 +91,19 @@ def clamp_text(text, max_chars=MAX_PREP_CHARS):
         return clean
     return clean[:max_chars - 3].rstrip() + "..."
 
-def segment_and_wrap(text, max_w_1x, size_1x):
-    max_w_px = max_w_1x * SCALE
+def segment_and_wrap(text, max_w, size_px):
     tokens = str(text).strip().split()
     if not tokens:
         return []
-    space_w, _ = measure_token(" ", size_1x)
+    space_w, _ = measure_token(" ", size_px)
     lines = []
     current_line = []
     current_w = 0
 
     for token in tokens:
-        w, _ = measure_token(token, size_1x)
+        w, _ = measure_token(token, size_px)
         if current_line:
-            if current_w + space_w + w <= max_w_px:
+            if current_w + space_w + w <= max_w:
                 current_line.append((token, w))
                 current_w += space_w + w
             else:
@@ -126,34 +118,34 @@ def segment_and_wrap(text, max_w_1x, size_1x):
         lines.append(current_line)
     return lines
 
-def determine_uniform_font_size(text_items, max_w_1x, max_h_1x, target_size=18, min_size=13, max_allowed_lines=2):
-    max_h_px = max_h_1x * SCALE
+def determine_uniform_font_size(text_items, max_w, max_h, target_size=17, min_size=13, max_allowed_lines=2):
     t_size = int(round(target_size))
     m_size = int(round(min_size))
 
     for s in range(t_size, m_size - 1, -1):
-        line_height = int(s * SCALE * 1.25)
+        line_height = int(s * 1.25)
         fits_all = True
         for item in text_items:
-            lines = segment_and_wrap(item, max_w_1x, s)
-            if len(lines) > max_allowed_lines or (len(lines) * line_height) > max_h_px:
+            lines = segment_and_wrap(item, max_w, s)
+            if len(lines) > max_allowed_lines or (len(lines) * line_height) > max_h:
                 fits_all = False
                 break
         if fits_all:
             return s
     return m_size
 
-def draw_uniform_text(draw, text, x_1x, y_1x, max_w_1x, size_1x, max_lines=2, fill=0):
-    lines = segment_and_wrap(text, max_w_1x, size_1x)[:max_lines]
-    line_height = int(size_1x * SCALE * 1.25)
-    curr_y = y_1x * SCALE
-    space_w, _ = measure_token(" ", size_1x)
+def draw_uniform_text(draw, text, x, y, max_w, size_px, max_lines=2, fill=0):
+    size_int = int(round(size_px))
+    lines = segment_and_wrap(text, max_w, size_int)[:max_lines]
+    line_height = int(size_int * 1.25)
+    curr_y = y
+    space_w, _ = measure_token(" ", size_int)
 
     for line in lines:
-        curr_x = x_1x * SCALE
+        curr_x = x
         for idx, (token, token_w) in enumerate(line):
             script = classify_script(token)
-            font = get_content_font(script, size_1x)
+            font = get_content_font(script, size_int)
             draw.text((curr_x, curr_y), token, font=font, fill=fill)
             curr_x += token_w
             if idx < len(line) - 1:
@@ -323,7 +315,8 @@ def api_menu_handler():
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(day_name) DO UPDATE SET
                 breakfast = excluded.breakfast, lunch = excluded.lunch,
-                dinner = excluded.dinner, task1 = excluded.task1, task2 = excluded.task2
+                dinner = excluded.dinner,
+                task1 = excluded.task1, task2 = excluded.task2
         """, (day, str(req.get("breakfast", "")).replace("+", ","),
               str(req.get("lunch", "")).replace("+", ","),
               str(req.get("dinner", "")).replace("+", ","),
@@ -335,7 +328,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 6. ENHANCED UNIFORM 1-BIT RENDERER (Anti-Aliased 2x Supersampled Pipeline)
+# 6. NATIVE 1:1 MONOCHROME RENDERER (Clean, Sharp, Zero Muddy Scaling)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -356,136 +349,125 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # 2x Master Grayscale Canvas: Prevents stroke-thinning dropouts on 'T', 'l', 'I'
-        img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
-        draw = ImageDraw.Draw(img_2x)
+        # Mode "1": Native 1-bit monochrome (0 = Black Ink, 1 = White Background)
+        img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
+        draw = ImageDraw.Draw(img)
 
-        # Inter ExtraBold for System Chrome
+        # Chrome Fonts
         f_logo = get_chrome_font(18)
         f_date = get_chrome_font(11)
         f_badge = get_chrome_font(10)
-        f_cuisine_strip = get_chrome_font(9.5)
+        f_cuisine = get_chrome_font(9.5)
         f_cat = get_chrome_font(9.5)
 
         # --------------------------------------------------------------------
         # 1. TOP SYSTEM BAR (y: 0 to 28px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 0, CANVAS_W - 1, 28 * SCALE], fill=0)
-        draw.text((8 * SCALE, 4 * SCALE), "MealSync", font=f_logo, fill=255)
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, 28], fill=0)
+        draw.text((8, 4), "MealSync", font=f_logo, fill=1)
 
         d_bbox = f_date.getbbox(date_str)
         d_w = d_bbox[2] - d_bbox[0]
-        draw.text(((CANVAS_W - d_w) // 2, 8 * SCALE), date_str, font=f_date, fill=255)
+        draw.text(((PANEL_WIDTH - d_w) // 2, 8), date_str, font=f_date, fill=1)
 
-        # Battery Icon
-        batX, batY = 368 * SCALE, 8 * SCALE
-        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (12 * SCALE)], outline=255, width=SCALE)
-        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (9 * SCALE)], fill=255)
-        fill_w = max(0, min(18 * SCALE, int((batt_pct / 100.0) * 18 * SCALE)))
+        # Battery Box
+        batX, batY = 368, 8
+        draw.rectangle([batX, batY, batX + 22, batY + 12], outline=1, width=1)
+        draw.rectangle([batX + 22, batY + 3, batX + 24, batY + 9], fill=1)
+        fill_w = max(0, min(18, int((batt_pct / 100.0) * 18)))
         if fill_w > 0:
-            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (10 * SCALE)], fill=255)
+            draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 10], fill=1)
 
         b_bbox = f_badge.getbbox(batt_str)
         b_lbl_w = b_bbox[2] - b_bbox[0]
-        bat_text_x = batX - b_lbl_w - (5 * SCALE)
-        draw.text((bat_text_x, 8 * SCALE), batt_str, font=f_badge, fill=255)
+        bat_text_x = batX - b_lbl_w - 5
+        draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
-        # Wi-Fi Indicator
+        # 3-Bar Wi-Fi Indicator
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = bat_text_x - (16 * SCALE), 8 * SCALE
-        draw.rectangle([wifiX, wifiY + (7 * SCALE), wifiX + (2 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
+        wifiX, wifiY = bat_text_x - 16, 8
+        draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 11], fill=1 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 8, wifiY + 1, wifiX + 10, wifiY + 11], fill=1 if signal_bars >= 3 else 0)
 
         # --------------------------------------------------------------------
         # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
         # --------------------------------------------------------------------
-        draw.rectangle([0, 28 * SCALE, CANVAS_W - 1, 44 * SCALE], fill=0)
+        draw.rectangle([0, 28, PANEL_WIDTH - 1, 44], fill=0)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
-        draw.text((8 * SCALE, 30 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
+        draw.text((8, 30), cuisine_full, font=f_cuisine, fill=1)
 
         # --------------------------------------------------------------------
         # 3. UNIFORM MEALS SECTION (y: 46 to 222px)
         # --------------------------------------------------------------------
-        rail_x = 16 * SCALE
-        draw.line([(rail_x, 52 * SCALE), (rail_x, 208 * SCALE)], fill=0, width=SCALE)
+        rail_x = 16
+        draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
+        # Locked uniform meal font size
         uniform_meal_font_size = determine_uniform_font_size(
             [data["breakfast"], data["lunch"], data["dinner"]],
-            max_w_1x=364,
-            max_h_1x=37,
-            target_size=18,
-            min_size=14,
+            max_w=364,
+            max_h=37,
+            target_size=16,
+            min_size=13,
             max_allowed_lines=2
         )
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
+            draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
             c_bbox = f_cat.getbbox(category)
             cat_w = c_bbox[2] - c_bbox[0]
-            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (8 * SCALE), (y_start * SCALE) + (14 * SCALE)], fill=0)
-            draw.text(((28 * SCALE) + (4 * SCALE), (y_start * SCALE) + (1 * SCALE)), category, font=f_cat, fill=255)
+            draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
+            draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
             draw_uniform_text(draw, dish_text, 28, y_start + 17, 364, uniform_meal_font_size, max_lines=2, fill=0)
             
             div_y = y_start + row_h
-            draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=0, width=SCALE)
+            draw.line([(28, div_y), (PANEL_WIDTH - 8, div_y)], fill=0, width=1)
 
         draw_meal_slot("BREAKFAST", data["breakfast"], 48, 54, 54)
         draw_meal_slot("LUNCH", data["lunch"], 106, 112, 54)
         draw_meal_slot("DINNER", data["dinner"], 164, 170, 54)
 
-        draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
+        draw.line([(0, 222), (PANEL_WIDTH, 222)], fill=0, width=2)
 
         # --------------------------------------------------------------------
-        # 4. UNIFORM PREP CARDS (Matched Pill Layout + Clamped Text)
+        # 4. UNIFORM PREP CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
-        # Evaluates task1 and task2 together to maintain consistent font sizing
         uniform_task_font_size = determine_uniform_font_size(
             [data["task1"], data["task2"]],
-            max_w_1x=174,
-            max_h_1x=48,
-            target_size=14,
-            min_size=11,
+            max_w=176,
+            max_h=46,
+            target_size=13,
+            min_size=10,
             max_allowed_lines=3
         )
 
         def draw_prep_card(x1, y1, x2, y2, badge_label, task_text):
-            # Outer boundary
-            draw.rectangle([x1 * SCALE, y1 * SCALE, x2 * SCALE, y2 * SCALE], outline=0, width=SCALE)
+            draw.rectangle([x1, y1, x2, y2], outline=0, width=1)
             
-            # Sub-header strip with category pill matching the meal format
             badge_bbox = f_cat.getbbox(badge_label)
             b_w = badge_bbox[2] - badge_bbox[0]
-            draw.rectangle([(x1 + 6) * SCALE, (y1 + 5) * SCALE, (x1 + 6) * SCALE + b_w + (8 * SCALE), (y1 + 19) * SCALE], fill=0)
-            draw.text([((x1 + 10) * SCALE), (y1 + 6) * SCALE], badge_label, font=f_cat, fill=255)
+            draw.rectangle([x1 + 6, y1 + 5, x1 + 6 + b_w + 8, y1 + 17], fill=0)
+            draw.text((x1 + 10, y1 + 6), badge_label, font=f_cat, fill=1)
             
-            # Content line below pill
-            draw_uniform_text(draw, task_text, x1 + 6, y1 + 22, 174, uniform_task_font_size, max_lines=3, fill=0)
+            draw_uniform_text(draw, task_text, x1 + 6, y1 + 21, (x2 - x1 - 12), uniform_task_font_size, max_lines=3, fill=0)
 
         draw_prep_card(6, 226, 196, 294, "TODAY'S PREP", data["task1"])
         draw_prep_card(202, 226, 394, 294, "TOMORROW'S PREP", data["task2"])
 
-        # Perimeter Frame
-        draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
+        # Outer perimeter frame
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # ====================================================================
-        # MORPHOLOGICAL THICKENING & DOWNSCALING
-        # Locks thick, non-breaking stems for 'T', 'l', 'I', numbers & matras
-        # ====================================================================
-        img_dilated = img_2x.filter(ImageFilter.MinFilter(3))
-        img_downscaled = img_dilated.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 175 else 0, mode="1")
-
-        # Active-High packed byte format (1 = Black Ink for SSD1683)
+        # Hardware active-high conversion (1 = Black Ink for SSD1683)
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
-            img_epd = img_1bit.point(lambda p: 0 if p else 1, mode="1")
+            img_epd = img.point(lambda p: 0 if p else 1, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
-        # Browser preview
+        # Web preview
         buf = io.BytesIO()
-        img_1bit.save(buf, format='BMP')
+        img.save(buf, format='BMP')
         buf.seek(0)
         return send_file(buf, mimetype='image/bmp')
 
