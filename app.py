@@ -96,7 +96,7 @@ def measure_token(token, size_px):
         return len(str(token)) * int(size_px * 0.6), font
 
 # ============================================================================
-# 3. UNIFORM MULTILINGUAL TEXT WRAPPER & RENDERER
+# 3. GLOBAL UNIFORMITY TEXT WRAPPER & SIZING ENGINE
 # ============================================================================
 def segment_and_wrap(text, max_w, size_px):
     tokens = str(text).strip().split()
@@ -125,14 +125,17 @@ def segment_and_wrap(text, max_w, size_px):
         lines.append(current_line)
     return lines
 
-def determine_uniform_meal_font_size(meals, max_w, max_h, target_size=14, min_size=11):
-    """Calculates a single uniform font size that allows ALL meals to fit cleanly without deviation."""
+def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_size=10, max_allowed_lines=2):
+    """
+    Calculates a single uniform font size so that ALL items in the group
+    fit cleanly within their respective max width/height boundaries.
+    """
     for s in range(target_size, min_size - 1, -1):
         line_height = int(s * 1.30)
         fits_all = True
-        for m in meals:
-            lines = segment_and_wrap(m, max_w, s)
-            if len(lines) > 2 or (len(lines) * line_height) > max_h:
+        for item in text_items:
+            lines = segment_and_wrap(item, max_w, s)
+            if len(lines) > max_allowed_lines or (len(lines) * line_height) > max_h:
                 fits_all = False
                 break
         if fits_all:
@@ -140,7 +143,6 @@ def determine_uniform_meal_font_size(meals, max_w, max_h, target_size=14, min_si
     return min_size
 
 def draw_uniform_multilingual_text(draw, text, x, y, max_w, size_px, max_lines=2, fill=0):
-    """Draws multi-script text strictly locked to the uniform size_px."""
     lines = segment_and_wrap(text, max_w, size_px)[:max_lines]
     line_height = int(size_px * 1.30)
     curr_y = y
@@ -427,13 +429,14 @@ def render_display():
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
-        # Calculate a single uniform font size across ALL meals (default 14px)
-        uniform_meal_font_size = determine_uniform_meal_font_size(
+        # 1. Global Uniformity for Meals (target 14px, min 11px)
+        uniform_meal_font_size = determine_uniform_font_size(
             [data["breakfast"], data["lunch"], data["dinner"]],
             max_w=364,
             max_h=35,
             target_size=14,
-            min_size=11
+            min_size=11,
+            max_allowed_lines=2
         )
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
@@ -466,22 +469,29 @@ def render_display():
         # --------------------------------------------------------------------
         # 4. UNIFORM DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
-        # Locked to a uniform 11.5px for both cards
-        TASK_FONT_SIZE = 11.5
+        # 2. Global Uniformity for Tasks (Evaluates both tasks together, target 12.5px, min 10px)
+        uniform_task_font_size = determine_uniform_font_size(
+            [data["task1"], data["task2"]],
+            max_w=166,
+            max_h=45,
+            target_size=12.5,
+            min_size=10,
+            max_allowed_lines=3
+        )
 
         # Left Card: TODAY'S PREP
         draw.rectangle([6, 226, 196, 294], outline=0, width=1)
         draw.rectangle([6, 226, 196, 241], fill=0)
         draw.text((10, 227), "TODAY'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([12, 248, 22, 258], outline=0, width=1)
-        draw_uniform_multilingual_text(draw, data["task1"], 26, 245, 166, TASK_FONT_SIZE, max_lines=3, fill=0)
+        draw_uniform_multilingual_text(draw, data["task1"], 26, 245, 166, uniform_task_font_size, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
         draw.rectangle([202, 226, 394, 294], outline=0, width=1)
         draw.rectangle([202, 226, 394, 241], fill=0)
         draw.text((206, 227), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
         draw.rectangle([208, 248, 218, 258], outline=0, width=1)
-        draw_uniform_multilingual_text(draw, data["task2"], 222, 245, 168, TASK_FONT_SIZE, max_lines=3, fill=0)
+        draw_uniform_multilingual_text(draw, data["task2"], 222, 245, 168, uniform_task_font_size, max_lines=3, fill=0)
 
         # Perimeter Frame
         draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
