@@ -70,7 +70,7 @@ def get_font_instance(font_key, size_px):
     font_file = FONT_FILES.get(font_key, "DejaVuSans-Bold.ttf")
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
-            return ImageFont.truetype(font_file, int(size_px))
+            return ImageFont.truetype(font_file, int(round(size_px)))
     except Exception:
         pass
     
@@ -81,7 +81,7 @@ def get_font_instance(font_key, size_px):
     for fb in fallbacks:
         if os.path.exists(fb):
             try:
-                return ImageFont.truetype(fb, int(size_px))
+                return ImageFont.truetype(fb, int(round(size_px)))
             except Exception:
                 pass
     return ImageFont.load_default()
@@ -127,10 +127,13 @@ def segment_and_wrap(text, max_w, size_px):
 
 def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_size=10, max_allowed_lines=2):
     """
-    Calculates a single uniform font size so that ALL items in the group
+    Calculates a single uniform integer font size so that ALL items in the group
     fit cleanly within their respective max width/height boundaries.
     """
-    for s in range(target_size, min_size - 1, -1):
+    t_size = int(round(target_size))
+    m_size = int(round(min_size))
+
+    for s in range(t_size, m_size - 1, -1):
         line_height = int(s * 1.30)
         fits_all = True
         for item in text_items:
@@ -140,19 +143,20 @@ def determine_uniform_font_size(text_items, max_w, max_h, target_size=14, min_si
                 break
         if fits_all:
             return s
-    return min_size
+    return m_size
 
 def draw_uniform_multilingual_text(draw, text, x, y, max_w, size_px, max_lines=2, fill=0):
-    lines = segment_and_wrap(text, max_w, size_px)[:max_lines]
-    line_height = int(size_px * 1.30)
+    size_int = int(round(size_px))
+    lines = segment_and_wrap(text, max_w, size_int)[:max_lines]
+    line_height = int(size_int * 1.30)
     curr_y = y
-    space_w, _ = measure_token(" ", size_px)
+    space_w, _ = measure_token(" ", size_int)
 
     for line in lines:
         curr_x = x
         for idx, (token, token_w) in enumerate(line):
             script_key = classify_script(token)
-            font = get_font_instance(script_key, size_px)
+            font = get_font_instance(script_key, size_int)
             draw.text((curr_x, curr_y), token, font=font, fill=fill)
             curr_x += token_w
             if idx < len(line) - 1:
@@ -371,7 +375,7 @@ def render_display():
         img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
         draw = ImageDraw.Draw(img)
 
-        # Locked Sizes for All Chrome & Labels
+        # Chrome & Labels
         f_logo = get_font_instance("profont", 14)
         f_date = get_font_instance("profont", 11)
         f_badge = get_font_instance("profont", 10)
@@ -429,7 +433,7 @@ def render_display():
         rail_x = 16
         draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
-        # 1. Global Uniformity for Meals (target 14px, min 11px)
+        # Uniform Meals Font Size (Integer parameters)
         uniform_meal_font_size = determine_uniform_font_size(
             [data["breakfast"], data["lunch"], data["dinner"]],
             max_w=364,
@@ -469,12 +473,12 @@ def render_display():
         # --------------------------------------------------------------------
         # 4. UNIFORM DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # --------------------------------------------------------------------
-        # 2. Global Uniformity for Tasks (Evaluates both tasks together, target 12.5px, min 10px)
+        # Strict integer target_size=12 to prevent range() float TypeError
         uniform_task_font_size = determine_uniform_font_size(
             [data["task1"], data["task2"]],
             max_w=166,
             max_h=45,
-            target_size=12.5,
+            target_size=12,
             min_size=10,
             max_allowed_lines=3
         )
