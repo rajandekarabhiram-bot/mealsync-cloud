@@ -7,17 +7,17 @@ import requests
 import traceback
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file, render_template_string, jsonify
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 DB_FILE = "mealsync.db"
 
-SYNC_VERSION = 1
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
+SCALE = 2
+CANVAS_W = PANEL_WIDTH * SCALE   # 800px
+CANVAS_H = PANEL_HEIGHT * SCALE  # 600px
 
 # ============================================================================
 # 1. CORS & HEADERS
@@ -31,18 +31,16 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. BULLETPROOF NATIVE 1-BIT FONT ENGINE
+# 2. BULLETPROOF UNIVERSAL FONT ENGINE
 # ============================================================================
 FONT_FILES = {
-    "latin_bold": "DejaVuSans-Bold.ttf",
-    "latin_regular": "DejaVuSans.ttf",
-    "devanagari_bold": "NotoSansDevanagari-Bold.ttf",
-    "gujarati_bold": "NotoSansGujarati-Bold.ttf"
+    "latin": "Inter-SemiBold.ttf",
+    "devanagari": "NotoSansDevanagari-Bold.ttf",
+    "gujarati": "NotoSansGujarati-Bold.ttf"
 }
 
 FONT_URLS = {
-    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
-    "DejaVuSans.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans.ttf",
+    "Inter-SemiBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-SemiBold.ttf",
     "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
     "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
 }
@@ -56,64 +54,52 @@ def verify_and_fetch_fonts():
                     with open(filename, "wb") as f:
                         f.write(res.content)
             except Exception as e:
-                print(f"[FONT DOWNLOAD ERROR] {filename}: {e}")
+                print(f"[FONT ENGINE] Failed to fetch {filename}: {e}")
 
 verify_and_fetch_fonts()
 
-def classify_script(char_str):
-    for ch in str(char_str):
+def classify_script(text_segment):
+    for ch in str(text_segment):
         cp = ord(ch)
         if 0x0900 <= cp <= 0x097F:
-            return "devanagari_bold"
+            return "devanagari"
         elif 0x0A80 <= cp <= 0x0AFF:
-            return "gujarati_bold"
-    return "latin_bold"
+            return "gujarati"
+    return "latin"
 
-def get_font_instance(script_key, size_px):
-    font_file = FONT_FILES.get(script_key, "DejaVuSans-Bold.ttf")
+def get_font_instance(script_key, size_1x):
+    font_file = FONT_FILES.get(script_key, "Inter-SemiBold.ttf")
+    target_px = int(size_1x * SCALE)
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
-            return ImageFont.truetype(font_file, int(size_px))
+            return ImageFont.truetype(font_file, target_px)
     except Exception:
         pass
-    system_fallbacks = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"
-    ]
-    for sys_font in system_fallbacks:
-        if os.path.exists(sys_font):
-            try:
-                return ImageFont.truetype(sys_font, int(size_px))
-            except Exception:
-                pass
     return ImageFont.load_default()
 
-def measure_token(token, size_px):
+def measure_token(token, size_1x):
     script = classify_script(token)
-    font = get_font_instance(script, size_px)
+    font = get_font_instance(script, size_1x)
     try:
         bbox = font.getbbox(token)
         return (bbox[2] - bbox[0]), font
     except Exception:
-        return len(token) * int(size_px * 0.6), font
+        return len(token) * int(size_1x * SCALE * 0.6), font
 
-# ============================================================================
-# 3. DIRECT 1-BIT MULTILINGUAL TEXT WRAPPER
-# ============================================================================
-def segment_and_wrap(text, max_w, size_px):
+# Multilingual Auto-wrapping and Tokenizer
+def segment_and_wrap(text, max_w_px, size_1x):
     tokens = str(text).strip().split()
     if not tokens:
         return []
-    space_w, _ = measure_token(" ", size_px)
+    space_w, _ = measure_token(" ", size_1x)
     lines = []
     current_line = []
     current_w = 0
 
     for token in tokens:
-        w, _ = measure_token(token, size_px)
+        w, _ = measure_token(token, size_1x)
         if current_line:
-            if current_w + space_w + w <= max_w:
+            if current_w + space_w + w <= max_w_px:
                 current_line.append((token, w))
                 current_w += space_w + w
             else:
@@ -128,32 +114,34 @@ def segment_and_wrap(text, max_w, size_px):
         lines.append(current_line)
     return lines
 
-def draw_native_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size=11, max_lines=2, fill=0):
+def draw_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max_size=15, min_size=11, max_lines=2, fill=0):
     text = str(text).strip()
     if not text:
         return
 
+    max_w_px = max_w_1x * SCALE
+    max_h_px = max_h_1x * SCALE
     best_size = min_size
     best_lines = []
 
     for s in range(max_size, min_size - 1, -1):
-        test_lines = segment_and_wrap(text, max_w, s)
-        line_height = int(s * 1.30)
-        if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h:
+        test_lines = segment_and_wrap(text, max_w_px, s)
+        line_height = int(s * SCALE * 1.30)
+        if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h_px:
             best_size = s
             best_lines = test_lines
             break
 
     if not best_lines:
-        best_lines = segment_and_wrap(text, max_w, min_size)[:max_lines]
+        best_lines = segment_and_wrap(text, max_w_px, min_size)[:max_lines]
         best_size = min_size
 
-    line_height = int(best_size * 1.30)
-    curr_y = y
+    line_height = int(best_size * SCALE * 1.30)
+    curr_y = y_1x * SCALE
     space_w, _ = measure_token(" ", best_size)
 
     for line in best_lines:
-        curr_x = x
+        curr_x = x_1x * SCALE
         for idx, (token, token_w) in enumerate(line):
             script = classify_script(token)
             font = get_font_instance(script, best_size)
@@ -164,7 +152,7 @@ def draw_native_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, m
         curr_y += line_height
 
 # ============================================================================
-# 4. DATABASE & STATE MANAGEMENT
+# 3. DATABASE SETUP & PERSISTENCE
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -200,6 +188,7 @@ def init_db():
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('sync_version', '1')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_cuisine', 'Maharashtrian')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('active_diet', 'VEG')")
         conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('forced_display_day', 'AUTO')")
@@ -210,6 +199,21 @@ def init_db():
         conn.commit()
 
 init_db()
+
+def get_setting(key, default_val=""):
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default_val
+
+def set_setting(key, value):
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, str(value)))
+        conn.commit()
+
+def increment_sync_version():
+    cur = int(get_setting("sync_version", "1")) + 1
+    set_setting("sync_version", cur)
+    return cur
 
 def get_telemetry():
     with get_db() as conn:
@@ -232,16 +236,6 @@ def update_telemetry_db(pct, label, v, rssi, wifi_strength):
                 wifi_strength = excluded.wifi_strength,
                 last_seen = excluded.last_seen
         """, (pct, label, v, rssi, wifi_strength, now_str))
-        conn.commit()
-
-def get_setting(key, default_val=""):
-    with get_db() as conn:
-        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else default_val
-
-def set_setting(key, value):
-    with get_db() as conn:
-        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
         conn.commit()
 
 def get_target_menu_data():
@@ -272,15 +266,18 @@ def get_target_menu_data():
     return date_str, data
 
 # ============================================================================
-# 5. REST APIS & HARDWARE SYNC
+# 4. REST APIS & SYNCHRONIZATION
 # ============================================================================
-@app.route('/hash', methods=['GET'])
+@app.route('/hash', methods=['GET', 'HEAD'])
 def get_content_hash():
-    global SYNC_VERSION
+    sync_ver = get_setting("sync_version", "1")
     date_str, data = get_target_menu_data()
-    payload = f"{SYNC_VERSION}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
+    payload = f"{sync_ver}|{date_str}|{data['cuisine']}|{data['breakfast']}|{data['lunch']}|{data['dinner']}|{data['task1']}|{data['task2']}"
     content_hash = hashlib.md5(payload.encode('utf-8')).hexdigest()[:10]
-    return jsonify({"hash": content_hash, "sync_version": SYNC_VERSION, "day": data['day']}), 200
+    
+    response = jsonify({"hash": content_hash, "sync_version": int(sync_ver), "day": data['day']})
+    response.headers["ETag"] = content_hash
+    return response, 200
 
 @app.route('/api/telemetry', methods=['GET', 'POST', 'OPTIONS'])
 def api_telemetry():
@@ -303,7 +300,6 @@ def api_telemetry():
 
 @app.route('/api/menu', methods=['GET', 'POST', 'OPTIONS'])
 def api_menu_handler():
-    global SYNC_VERSION
     if request.method == 'OPTIONS':
         return Response(status=200)
     if request.method == 'GET':
@@ -313,7 +309,7 @@ def api_menu_handler():
                 "menu": [dict(ix) for ix in rows],
                 "active_cuisine": get_setting("active_cuisine", "Maharashtrian"),
                 "active_diet": get_setting("active_diet", "VEG"),
-                "sync_version": SYNC_VERSION
+                "sync_version": int(get_setting("sync_version", "1"))
             }), 200
 
     req = request.get_json(force=True)
@@ -338,11 +334,11 @@ def api_menu_handler():
               str(req.get("task2", "")).replace("+", ",")))
         conn.commit()
 
-    SYNC_VERSION += 1
-    return jsonify({"status": "updated", "sync_version": SYNC_VERSION, "forced_day": day}), 200
+    new_ver = increment_sync_version()
+    return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 6. ENLARGED 1-BIT MONOCHROME E-PAPER RENDERER (400x300 Matrix)
+# 5. EXACT SIMULATOR-PARITY 1-BIT RENDERER (Option 1 Layout)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -363,108 +359,100 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # Native 1-bit Canvas: 1 = White background, 0 = Black ink
-        img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
-        draw = ImageDraw.Draw(img)
+        # 2x Master Supersampled Canvas for anti-aliasing preservation
+        img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
+        draw = ImageDraw.Draw(img_2x)
 
-        # Increased Font Base Sizes
-        f_logo = get_font_instance("latin_bold", 16)
-        f_date = get_font_instance("latin_bold", 13)
-        f_badge = get_font_instance("latin_bold", 12)
-        f_cuisine_strip = get_font_instance("latin_bold", 11)
-        f_cat = get_font_instance("latin_bold", 11)
-        f_task_hdr = get_font_instance("latin_bold", 11.5)
+        f_logo = get_font_instance("latin", 15)
+        f_date = get_font_instance("latin", 12)
+        f_badge = get_font_instance("latin", 11)
+        f_cuisine_strip = get_font_instance("latin", 10.5)
+        f_cat = get_font_instance("latin", 10.5)
+        f_task_hdr = get_font_instance("latin", 10.5)
 
-        # --------------------------------------------------------------------
-        # 1. ENLARGED TOP HEADER (y: 0 to 32px)
-        # --------------------------------------------------------------------
-        draw.rectangle([0, 0, PANEL_WIDTH - 1, 32], fill=0)
-        draw.text((8, 8), "MealSync", font=f_logo, fill=1)
+        # 1. TOP HEADER (y: 0 to 30px)
+        draw.rectangle([0, 0, CANVAS_W - 1, 30 * SCALE], fill=0)
+        draw.text((8 * SCALE, 8 * SCALE), "MealSync", font=f_logo, fill=255)
 
-        d_w, _ = measure_token(date_str, 13)
-        draw.text(((PANEL_WIDTH - d_w) // 2, 9), date_str, font=f_date, fill=1)
+        d_w, _ = measure_token(date_str, 12)
+        draw.text(((CANVAS_W - d_w) // 2, 8 * SCALE), date_str, font=f_date, fill=255)
 
-        # Enlarged Battery Icon + Days Text + Thick Wi-Fi
-        batX, batY = 364, 9
-        draw.rectangle([batX, batY, batX + 26, batY + 14], outline=1, width=1)
-        draw.rectangle([batX + 26, batY + 4, batX + 28, batY + 10], fill=1)
-        fill_w = max(0, min(22, int((batt_pct / 100.0) * 22)))
+        batX, batY = 368 * SCALE, 9 * SCALE
+        draw.rectangle([batX, batY, batX + (22 * SCALE), batY + (13 * SCALE)], outline=255, width=SCALE)
+        draw.rectangle([batX + (22 * SCALE), batY + (3 * SCALE), batX + (24 * SCALE), batY + (10 * SCALE)], fill=255)
+        fill_w = max(0, min(18 * SCALE, int((batt_pct / 100.0) * 18 * SCALE)))
         if fill_w > 0:
-            draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 12], fill=1)
+            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (11 * SCALE)], fill=255)
 
-        b_lbl_w, _ = measure_token(batt_str, 12)
-        bat_text_x = batX - b_lbl_w - 6
-        draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
+        b_lbl_w, _ = measure_token(batt_str, 11)
+        bat_text_x = batX - b_lbl_w - (5 * SCALE)
+        draw.text((bat_text_x, 8 * SCALE), batt_str, font=f_badge, fill=255)
 
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = bat_text_x - 20, 9
-        draw.rectangle([wifiX, wifiY + 9, wifiX + 3, wifiY + 14], fill=1 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + 5, wifiY + 5, wifiX + 8, wifiY + 14], fill=1 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + 10, wifiY + 0, wifiX + 13, wifiY + 14], fill=1 if signal_bars >= 3 else 0)
+        wifiX, wifiY = bat_text_x - (16 * SCALE), 9 * SCALE
+        draw.rectangle([wifiX, wifiY + (7 * SCALE), wifiX + (2 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + (4 * SCALE), wifiY + (4 * SCALE), wifiX + (6 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + (8 * SCALE), wifiY + (1 * SCALE), wifiX + (10 * SCALE), wifiY + (11 * SCALE)], fill=255 if signal_bars >= 3 else 0)
 
-        # --------------------------------------------------------------------
-        # 2. CUISINE SUB-HEADER STRIP (y: 32 to 50px)
-        # --------------------------------------------------------------------
-        draw.rectangle([0, 32, PANEL_WIDTH - 1, 50], fill=0)
+        # 2. CUISINE SUB-HEADER STRIP (y: 30 to 46px)
+        draw.rectangle([0, 30 * SCALE, CANVAS_W - 1, 46 * SCALE], fill=30)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
-        draw.text((8, 35), cuisine_full, font=f_cuisine_strip, fill=1)
+        draw.text((8 * SCALE, 32 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
 
-        # --------------------------------------------------------------------
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEAL ROWS (y: 52 to 226px)
-        # --------------------------------------------------------------------
-        rail_x = 16
-        draw.line([(rail_x, 58), (rail_x, 214)], fill=0, width=1)
+        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 48 to 222px)
+        rail_x = 16 * SCALE
+        draw.line([(rail_x, 54 * SCALE), (rail_x, 210 * SCALE)], fill=0, width=SCALE)
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            # Timeline Dot Node
-            draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
+            draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
 
-            # Solid Black Inverted Category Badge (Enlarged)
-            cat_w, _ = measure_token(category, 11)
-            draw.rectangle([28, y_start, 28 + cat_w + 10, y_start + 16], fill=0)
-            draw.text((28 + 5, y_start + 1), category, font=f_cat, fill=1)
+            cat_w, _ = measure_token(category, 10.5)
+            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (10 * SCALE), (y_start * SCALE) + (15 * SCALE)], fill=0)
+            draw.text(((28 * SCALE) + (5 * SCALE), (y_start * SCALE) + (2 * SCALE)), category, font=f_cat, fill=255)
 
-            # Native Multilingual Text Rendering (Auto-scaling 15.5px to 11px)
-            draw_native_multilingual_text(draw, dish_text, 28, y_start + 20, 364, row_h - 22, max_size=15.5, min_size=11, max_lines=2, fill=0)
+            draw_multilingual_text(draw, dish_text, 28, y_start + 18, 364, row_h - 20, max_size=16, min_size=12, max_lines=2, fill=0)
             
-            # Row Divider Line
             div_y = y_start + row_h
-            draw.line([(28, div_y), (PANEL_WIDTH - 8, div_y)], fill=0, width=1)
+            draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
 
-        draw_meal_slot("BREAKFAST", data["breakfast"], 52, 60, 58)
-        draw_meal_slot("LUNCH", data["lunch"], 110, 118, 58)
-        draw_meal_slot("DINNER", data["dinner"], 168, 176, 58)
+        draw_meal_slot("BREAKFAST", data["breakfast"], 48, 55, 54)
+        draw_meal_slot("LUNCH", data["lunch"], 106, 113, 54)
+        draw_meal_slot("DINNER", data["dinner"], 164, 171, 54)
 
         # Section Divider before Tasks
-        draw.line([(0, 226), (PANEL_WIDTH, 226)], fill=0, width=2)
+        draw.line([(0, 222 * SCALE), (CANVAS_W, 222 * SCALE)], fill=0, width=2 * SCALE)
 
-        # --------------------------------------------------------------------
-        # 4. DUAL-COLUMN TASK CARDS (y: 230 to 296px)
-        # --------------------------------------------------------------------
+        # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
         # Left Card: TODAY'S PREP
-        draw.rectangle([6, 230, 196, 296], outline=0, width=1)
-        draw.rectangle([6, 230, 196, 247], fill=0)
-        draw.text((10, 232), "TODAY'S PREP", font=f_task_hdr, fill=1)
-        draw.rectangle([12, 254, 22, 264], outline=0, width=1)
-        draw_native_multilingual_text(draw, data["task1"], 26, 251, 166, 42, max_size=12.5, min_size=10, max_lines=3, fill=0)
+        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([6 * SCALE, 226 * SCALE, 196 * SCALE, 242 * SCALE], fill=0)
+        draw.text((10 * SCALE, 227 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
+        draw.rectangle([12 * SCALE, 248 * SCALE, 22 * SCALE, 258 * SCALE], outline=0, width=SCALE)
+        draw_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=13, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
-        draw.rectangle([202, 230, 394, 296], outline=0, width=1)
-        draw.rectangle([202, 230, 394, 247], fill=0)
-        draw.text((206, 232), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
-        draw.rectangle([208, 254, 218, 264], outline=0, width=1)
-        draw_native_multilingual_text(draw, data["task2"], 222, 251, 168, 42, max_size=12.5, min_size=10, max_lines=3, fill=0)
+        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 294 * SCALE], outline=0, width=SCALE)
+        draw.rectangle([202 * SCALE, 226 * SCALE, 394 * SCALE, 242 * SCALE], fill=0)
+        draw.text((206 * SCALE, 227 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
+        draw.rectangle([208 * SCALE, 248 * SCALE, 218 * SCALE, 258 * SCALE], outline=0, width=SCALE)
+        draw_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=13, min_size=10, max_lines=3, fill=0)
 
         # Perimeter Frame
-        draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
+        draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
 
-        # Correct Byte Alignment for SSD1683 GxEPD2 driver
+        # Morphological Stroke Thickening for E-Paper Particle Density
+        img_dilated = img_2x.filter(ImageFilter.MinFilter(3))
+        img_downscaled = img_dilated.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
+        
+        # High-Contrast Thresholding
+        img_1bit = img_downscaled.point(lambda p: 255 if p > 175 else 0, mode="1")
+
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
-            img_epd = ImageOps.invert(img.convert("L")).point(lambda p: 255 if p > 128 else 0, mode="1")
+            img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
         buf = io.BytesIO()
-        img.save(buf, format='BMP')
+        img_1bit.save(buf, format='BMP')
         buf.seek(0)
         return send_file(buf, mimetype='image/bmp')
 
@@ -490,7 +478,7 @@ def home():
     <body>
         <div class="card">
             <h2>🍳 MealSync Cloud Engine</h2>
-            <p>1-Bit Native Multi-Script Rasterizer (SSD1683 / 400×300):</p>
+            <p>1-Bit Synchronized Buffer Stream (SSD1683 / 400×300):</p>
             <img src="/display.bmp" alt="Live E-Paper Stream" />
         </div>
     </body>
