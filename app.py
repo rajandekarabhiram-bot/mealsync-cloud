@@ -7,7 +7,7 @@ import requests
 import traceback
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, Response, send_file, render_template_string, jsonify
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -15,9 +15,6 @@ DB_FILE = "mealsync.db"
 
 PANEL_WIDTH = 400
 PANEL_HEIGHT = 300
-SCALE = 2
-CANVAS_W = PANEL_WIDTH * SCALE   # 800px
-CANVAS_H = PANEL_HEIGHT * SCALE  # 600px
 
 # ============================================================================
 # 1. CORS & HEADERS
@@ -31,17 +28,19 @@ def add_cors_and_cache_headers(response):
     return response
 
 # ============================================================================
-# 2. BULLETPROOF NATIVE & REMOTE FONT ENGINE (Inter + Noto Sans)
+# 2. BULLETPROOF UNIVERSAL FONTS
 # ============================================================================
+# DejaVuSans has complete Latin + symbol coverage without glyph corruption.
+# NotoSans handles Marathi (Devanagari) and Gujarati.
 FONT_FILES = {
-    "latin": "Inter-ExtraBold.ttf",
-    "devanagari": "NotoSansDevanagari-ExtraBold.ttf",
+    "latin": "DejaVuSans-Bold.ttf",
+    "devanagari": "NotoSansDevanagari-Bold.ttf",
     "gujarati": "NotoSansGujarati-Bold.ttf"
 }
 
 FONT_DOWNLOAD_URLS = {
-    "Inter-ExtraBold.ttf": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter-ExtraBold.ttf",
-    "NotoSansDevanagari-ExtraBold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-ExtraBold.ttf",
+    "DejaVuSans-Bold.ttf": "https://raw.githubusercontent.com/dejavu-fonts/dejavu-fonts/master/ttf/DejaVuSans-Bold.ttf",
+    "NotoSansDevanagari-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf",
     "NotoSansGujarati-Bold.ttf": "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSansGujarati/NotoSansGujarati-Bold.ttf"
 }
 
@@ -58,8 +57,8 @@ def verify_and_fetch_fonts():
 
 verify_and_fetch_fonts()
 
-def classify_script(text_segment):
-    for ch in str(text_segment):
+def classify_script(char_or_token):
+    for ch in str(char_or_token):
         cp = ord(ch)
         if 0x0900 <= cp <= 0x097F:
             return "devanagari"
@@ -67,16 +66,15 @@ def classify_script(text_segment):
             return "gujarati"
     return "latin"
 
-def get_font_instance(script_key, size_1x):
-    font_file = FONT_FILES.get(script_key, "Inter-ExtraBold.ttf")
-    target_px = int(size_1x * SCALE)
+def get_font_instance(script_key, size_px):
+    font_file = FONT_FILES.get(script_key, "DejaVuSans-Bold.ttf")
     try:
         if os.path.exists(font_file) and os.path.getsize(font_file) > 5000:
-            return ImageFont.truetype(font_file, target_px)
+            return ImageFont.truetype(font_file, int(size_px))
     except Exception:
         pass
-
-    # Linux system fallbacks
+    
+    # System font fallbacks if local files missing
     fallbacks = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
@@ -84,34 +82,34 @@ def get_font_instance(script_key, size_1x):
     for fb in fallbacks:
         if os.path.exists(fb):
             try:
-                return ImageFont.truetype(fb, target_px)
+                return ImageFont.truetype(fb, int(size_px))
             except Exception:
                 pass
     return ImageFont.load_default()
 
-def measure_token(token, size_1x):
+def measure_token(token, size_px):
     script = classify_script(token)
-    font = get_font_instance(script, size_1x)
+    font = get_font_instance(script, size_px)
     try:
-        bbox = font.getbbox(token)
+        bbox = font.getbbox(str(token))
         return (bbox[2] - bbox[0]), font
     except Exception:
-        return len(token) * int(size_1x * SCALE * 0.65), font
+        return len(str(token)) * int(size_px * 0.6), font
 
-# Multilingual Tokenized Text Wrapper
-def segment_and_wrap(text, max_w_px, size_1x):
+# Multilingual Auto-Wrapping
+def segment_and_wrap(text, max_w, size_px):
     tokens = str(text).strip().split()
     if not tokens:
         return []
-    space_w, _ = measure_token(" ", size_1x)
+    space_w, _ = measure_token(" ", size_px)
     lines = []
     current_line = []
     current_w = 0
 
     for token in tokens:
-        w, _ = measure_token(token, size_1x)
+        w, _ = measure_token(token, size_px)
         if current_line:
-            if current_w + space_w + w <= max_w_px:
+            if current_w + space_w + w <= max_w:
                 current_line.append((token, w))
                 current_w += space_w + w
             else:
@@ -126,34 +124,32 @@ def segment_and_wrap(text, max_w_px, size_1x):
         lines.append(current_line)
     return lines
 
-def draw_large_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max_size=20, min_size=16, max_lines=2, fill=0):
+def draw_multilingual_text(draw, text, x, y, max_w, max_h, max_size=15, min_size=11, max_lines=2, fill=0):
     text = str(text).strip()
     if not text:
         return
 
-    max_w_px = max_w_1x * SCALE
-    max_h_px = max_h_1x * SCALE
     best_size = min_size
     best_lines = []
 
     for s in range(max_size, min_size - 1, -1):
-        test_lines = segment_and_wrap(text, max_w_px, s)
-        line_height = int(s * SCALE * 1.25)
-        if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h_px:
+        test_lines = segment_and_wrap(text, max_w, s)
+        line_height = int(s * 1.30)
+        if len(test_lines) <= max_lines and (len(test_lines) * line_height) <= max_h:
             best_size = s
             best_lines = test_lines
             break
 
     if not best_lines:
-        best_lines = segment_and_wrap(text, max_w_px, min_size)[:max_lines]
+        best_lines = segment_and_wrap(text, max_w, min_size)[:max_lines]
         best_size = min_size
 
-    line_height = int(best_size * SCALE * 1.25)
-    curr_y = y_1x * SCALE
+    line_height = int(best_size * 1.30)
+    curr_y = y
     space_w, _ = measure_token(" ", best_size)
 
     for line in best_lines:
-        curr_x = x_1x * SCALE
+        curr_x = x
         for idx, (token, token_w) in enumerate(line):
             script = classify_script(token)
             font = get_font_instance(script, best_size)
@@ -164,7 +160,7 @@ def draw_large_multilingual_text(draw, text, x_1x, y_1x, max_w_1x, max_h_1x, max
         curr_y += line_height
 
 # ============================================================================
-# 3. DATABASE SETUP & PERSISTENCE
+# 3. DATABASE
 # ============================================================================
 def get_db():
     conn = sqlite3.connect(DB_FILE, timeout=15)
@@ -190,13 +186,13 @@ def init_db():
         cur.execute("SELECT COUNT(*) FROM weekly_menu")
         if cur.fetchone()[0] == 0:
             default_days = [
-                ("Monday", "खमंग थालीपीठ, लोणी (Thalipeeth)", "भरली वांगी, भाकरी (Bhakri)", "दाल तडका, जिरा राईस (Dal Rice)", "उसळीसाठी मटकी भिजवणे", "इडलीसाठी डाळ-तांदूळ वाटणे"),
-                ("Tuesday", "कांदे पोहे, चहा (Kande Pohe)", "वरण भात, भेंडी भाजी (Bhendi)", "मूग डाळ खिचडी, कढी (Khichdi)", "पालेभाज्या धुवून सुकवणे", "सकाळचे दूध व्यवस्थित उकळणे"),
-                ("Wednesday", "इडली, सांबार चटणी (Idli Sambar)", "मेथी भाजी, पोळी भात (Poli)", "मसाला भात, कोशिंबीर (Masala Bhaat)", "कोथिंबीर बारीक चिरणे", "घरचे ताजे दही विरजण लावणे"),
-                ("Thursday", "પૌંઆ, મસાલા ચા (Poha Chai)", "ગુજરાતી દાળ ભાત (Gujarati Thali)", "ખીચડી, કઢી પાપડ (Khichdi)", "લીલા શાકભાજી સમારવા", "ઢોકળાનું ખીરું આથો લાવવું"),
-                ("Friday", "मेथी पराठा, दही (Paratha)", "फ्लॉवर रस्सा भाजी, पोळी (Curry)", "दाल खिचडी, साजूक तूप (Ghee)", "आले-लसूण पेस्ट तयार करणे", "चपातीचे पीठ मळून ठेवणे"),
-                ("Saturday", "मिसळ पाव, लिंबू (Misal Pav)", "पनीर बटर मसाला (Paneer)", "घरगुती पावभाजी (Pav Bhaji)", "बटाटे उकडवून सोलून ठेवणे", "कांदा-टोमॅटो बारीक कापणे"),
-                ("Sunday", "डोसा, सांबार चटणी (Dosa)", "पुरणपोळी, आमटी (Puran Poli)", "दही भात, जिरा तडका (Curd Rice)", "सांबार मसाला वाटून घेणे", "पोहे चाळून स्वच्छ करणे")
+                ("Monday", "खमंग भाजणीचे थालीपीठ, लोणी (Thalipeeth)", "भरली वांगी, ज्वारीची भाकरी, वरण (Bharli Vangi, Bhakri)", "दाल तडका, जिरा राईस, कोशिंबीर (Dal Tadka, Jeera Rice)", "उद्याच्या उसळीसाठी मटकी/मूग भिजवणे", "डोसा/इडलीसाठी डाळ-तांदूळ भिजवून वाटणे"),
+                ("Tuesday", "मऊ लुसलुशीत पोहे, चहा (Kande Pohe)", "वरण भात, गव्हाची पोळी, भेंडी भाजी (Varan Bhaat, Bhendi)", "मूग डाळ मऊ खिचडी, कढी, पापड (Moong Khichdi, Kadhi)", "ताज्या पालेभाज्या धुवून सुकवणे", "सकाळचे दूध व्यवस्थित उकळणे"),
+                ("Wednesday", "मऊ इडली, सांबार, खोबरे चटणी (Idli Sambar)", "मेथीची सुकी भाजी, पोळी, वरण भात (Methi Bhaji, Poli)", "मसाला भात, काकडी कोशिंबीर (Masala Bhaat, Koshimbir)", "कोथिंबीर व हिरवी मिरची बारीक चिरणे", "घरचे ताजे दही विरजण लावणे"),
+                ("Thursday", "ગરમાગરમ પૌંઆ, મસાલા ચા (Poha Chai)", "ગુજરાતી દાળ, ભાત, રોટલી, શાક (Gujarati Thali)", "ખીચડી, કઢી, પાપડ, અથાણું (Khichdi Kadhi)", "લીલા શાકભાજી સમારીને રાખવા", "ઢોકળાનું ખીરું આથો લાવવા મૂકવું"),
+                ("Friday", "मेथी पराठा, ताजे दही (Methi Paratha)", "फ्लॉवर-बटाटा रस्सा भाजी, पोळी, भात (Cauliflower Curry)", "मसाला दाल खिचडी, साजूक तूप (Dal Khichdi, Ghee)", "आले-लसूण पेस्ट तयार करून ठेवणे", "चपातीचे पीठ मळून ठेवणे"),
+                ("Saturday", "झणझणीत मिसळ पाव, लिंबू (Misal Pav)", "पनीर बटर मसाला, जिरा राईस, पोळी (Paneer Masala)", "घरगुती पावभाजी, बटर पाव (Pav Bhaji, Butter Pav)", "बटाटे उकडवून सोलून ठेवणे", "भाजीसाठी कांदा-टोमॅटो बारीक कापणे"),
+                ("Sunday", "कुरकुरीत डोसा, सांबार, चटणी (Crispy Dosa)", "पुरणपोळी, कटाची आमटी, भजी (Puran Poli, Katachi Amti)", "दही भात, जिरा तडका, लिंबू लोणचे (Curd Rice)", "सांबार मसाला बारीक वाटून घेणे", "पोहे चाळून स्वच्छ करणे")
             ]
             conn.executemany("INSERT INTO weekly_menu VALUES (?, ?, ?, ?, ?, ?)", default_days)
         
@@ -278,7 +274,7 @@ def get_target_menu_data():
     return date_str, data
 
 # ============================================================================
-# 4. REST APIS & HARDWARE SYNC
+# 4. APIS
 # ============================================================================
 @app.route('/hash', methods=['GET', 'HEAD'])
 def get_content_hash():
@@ -350,7 +346,7 @@ def api_menu_handler():
     return jsonify({"status": "updated", "sync_version": new_ver, "forced_day": day}), 200
 
 # ============================================================================
-# 5. HIGH-DENSITY 1-BIT RENDERER (Option 1 Layout: Exact Simulator Match)
+# 5. EXACT SIMULATOR 1-BIT RENDERER (Native 1:1, Zero Blur, Zero Inversion Flaws)
 # ============================================================================
 @app.route('/display.bmp', methods=['GET', 'HEAD'])
 def render_display():
@@ -371,101 +367,112 @@ def render_display():
             wifi_lbl = "Excellent (3/3)" if rssi >= -65 else ("Good (2/3)" if rssi >= -78 else "Weak (1/3)")
             update_telemetry_db(batt_pct, batt_str, v, rssi, wifi_lbl)
 
-        # 2x Master Supersampled Canvas
-        img_2x = Image.new("L", (CANVAS_W, CANVAS_H), 255)
-        draw = ImageDraw.Draw(img_2x)
+        # Mode "1": 1-bit monochrome (0 = Black Ink, 1 = White Background)
+        img = Image.new("1", (PANEL_WIDTH, PANEL_HEIGHT), 1)
+        draw = ImageDraw.Draw(img)
 
-        f_logo = get_font_instance("latin", 16)
-        f_date = get_font_instance("latin", 13)
-        f_badge = get_font_instance("latin", 12)
-        f_cuisine_strip = get_font_instance("latin", 11)
-        f_cat = get_font_instance("latin", 11)
-        f_task_hdr = get_font_instance("latin", 11.5)
+        f_logo = get_font_instance("latin", 14)
+        f_date = get_font_instance("latin", 11)
+        f_badge = get_font_instance("latin", 10.5)
+        f_cuisine_strip = get_font_instance("latin", 9.5)
+        f_cat = get_font_instance("latin", 9.5)
+        f_task_hdr = get_font_instance("latin", 10)
 
-        # 1. TOP HEADER (y: 0 to 32px)
-        draw.rectangle([0, 0, CANVAS_W - 1, 32 * SCALE], fill=0)
-        draw.text((8 * SCALE, 8 * SCALE), "MealSync", font=f_logo, fill=255)
+        # --------------------------------------------------------------------
+        # 1. TOP HEADER (y: 0 to 28px) - Solid Black Bar (fill=0)
+        # --------------------------------------------------------------------
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, 28], fill=0)
+        draw.text((8, 7), "MealSync", font=f_logo, fill=1)
 
-        d_w, _ = measure_token(date_str, 13)
-        draw.text(((CANVAS_W - d_w) // 2, 8 * SCALE), date_str, font=f_date, fill=255)
+        d_w, _ = measure_token(date_str, 11)
+        draw.text(((PANEL_WIDTH - d_w) // 2, 8), date_str, font=f_date, fill=1)
 
         # Right Telemetry
-        batX, batY = 364 * SCALE, 9 * SCALE
-        draw.rectangle([batX, batY, batX + (26 * SCALE), batY + (14 * SCALE)], outline=255, width=SCALE)
-        draw.rectangle([batX + (26 * SCALE), batY + (4 * SCALE), batX + (28 * SCALE), batY + (10 * SCALE)], fill=255)
-        fill_w = max(0, min(22 * SCALE, int((batt_pct / 100.0) * 22 * SCALE)))
+        batX, batY = 368, 8
+        draw.rectangle([batX, batY, batX + 22, batY + 12], outline=1, width=1)
+        draw.rectangle([batX + 22, batY + 3, batX + 24, batY + 9], fill=1)
+        fill_w = max(0, min(18, int((batt_pct / 100.0) * 18)))
         if fill_w > 0:
-            draw.rectangle([batX + (2 * SCALE), batY + (2 * SCALE), batX + (2 * SCALE) + fill_w, batY + (12 * SCALE)], fill=255)
+            draw.rectangle([batX + 2, batY + 2, batX + 2 + fill_w, batY + 10], fill=1)
 
-        b_lbl_w, _ = measure_token(batt_str, 12)
-        bat_text_x = batX - b_lbl_w - (6 * SCALE)
-        draw.text((bat_text_x, 8 * SCALE), batt_str, font=f_badge, fill=255)
+        b_lbl_w, _ = measure_token(batt_str, 10.5)
+        bat_text_x = batX - b_lbl_w - 5
+        draw.text((bat_text_x, 8), batt_str, font=f_badge, fill=1)
 
         signal_bars = 3 if rssi >= -65 else (2 if rssi >= -78 else 1)
-        wifiX, wifiY = bat_text_x - (20 * SCALE), 9 * SCALE
-        draw.rectangle([wifiX, wifiY + (9 * SCALE), wifiX + (3 * SCALE), wifiY + (14 * SCALE)], fill=255 if signal_bars >= 1 else 0)
-        draw.rectangle([wifiX + (5 * SCALE), wifiY + (5 * SCALE), wifiX + (8 * SCALE), wifiY + (14 * SCALE)], fill=255 if signal_bars >= 2 else 0)
-        draw.rectangle([wifiX + (10 * SCALE), wifiY + (0 * SCALE), wifiX + (13 * SCALE), wifiY + (14 * SCALE)], fill=255 if signal_bars >= 3 else 0)
+        wifiX, wifiY = bat_text_x - 16, 8
+        draw.rectangle([wifiX, wifiY + 7, wifiX + 2, wifiY + 11], fill=1 if signal_bars >= 1 else 0)
+        draw.rectangle([wifiX + 4, wifiY + 4, wifiX + 6, wifiY + 11], fill=1 if signal_bars >= 2 else 0)
+        draw.rectangle([wifiX + 8, wifiY + 1, wifiX + 10, wifiY + 11], fill=1 if signal_bars >= 3 else 0)
 
-        # 2. CUISINE SUB-HEADER STRIP (y: 32 to 50px)
-        draw.rectangle([0, 32 * SCALE, CANVAS_W - 1, 50 * SCALE], fill=30)
+        # --------------------------------------------------------------------
+        # 2. CUISINE SUB-HEADER STRIP (y: 28 to 44px)
+        # --------------------------------------------------------------------
+        draw.rectangle([0, 28, PANEL_WIDTH - 1, 44], fill=0)
         cuisine_full = f"CUISINE: {data['cuisine'].upper()}"
-        draw.text((8 * SCALE, 34 * SCALE), cuisine_full, font=f_cuisine_strip, fill=255)
+        draw.text((8, 30), cuisine_full, font=f_cuisine_strip, fill=1)
 
-        # 3. COMPACT TIMELINE RAIL (x = 16px) & MEALS (y: 52 to 226px)
-        rail_x = 16 * SCALE
-        draw.line([(rail_x, 58 * SCALE), (rail_x, 214 * SCALE)], fill=0, width=SCALE)
+        # --------------------------------------------------------------------
+        # 3. TIMELINE RAIL (x = 16px) & MEALS (y: 46 to 222px)
+        # --------------------------------------------------------------------
+        rail_x = 16
+        draw.line([(rail_x, 52), (rail_x, 208)], fill=0, width=1)
 
         def draw_meal_slot(category, dish_text, y_start, dot_y, row_h):
-            draw.ellipse([rail_x - (3 * SCALE), (dot_y - 3) * SCALE, rail_x + (3 * SCALE), (dot_y + 3) * SCALE], fill=0)
+            # Bullet node
+            draw.ellipse([rail_x - 3, dot_y - 3, rail_x + 3, dot_y + 3], fill=0)
 
-            cat_w, _ = measure_token(category, 11)
-            draw.rectangle([28 * SCALE, y_start * SCALE, (28 * SCALE) + cat_w + (10 * SCALE), (y_start * SCALE) + (16 * SCALE)], fill=0)
-            draw.text(((28 * SCALE) + (5 * SCALE), (y_start * SCALE) + (1 * SCALE)), category, font=f_cat, fill=255)
+            # Solid black category box
+            cat_w, _ = measure_token(category, 9.5)
+            draw.rectangle([28, y_start, 28 + cat_w + 8, y_start + 14], fill=0)
+            draw.text((28 + 4, y_start + 1), category, font=f_cat, fill=1)
 
-            draw_large_multilingual_text(draw, dish_text, 28, y_start + 19, 364, row_h - 21, max_size=20, min_size=16, max_lines=2, fill=0)
+            # Crisp Multilingual dish text (Black on white)
+            draw_multilingual_text(draw, dish_text, 28, y_start + 17, 364, row_h - 19, max_size=14, min_size=11, max_lines=2, fill=0)
             
             div_y = y_start + row_h
-            draw.line([(28 * SCALE, div_y * SCALE), ((PANEL_WIDTH - 8) * SCALE, div_y * SCALE)], fill=210, width=SCALE)
+            draw.line([(28, div_y), (PANEL_WIDTH - 8, div_y)], fill=0, width=1)
 
-        draw_meal_slot("BREAKFAST", data["breakfast"], 52, 60, 58)
-        draw_meal_slot("LUNCH", data["lunch"], 110, 118, 58)
-        draw_meal_slot("DINNER", data["dinner"], 168, 176, 58)
+        draw_meal_slot("BREAKFAST", data["breakfast"], 48, 54, 54)
+        draw_meal_slot("LUNCH", data["lunch"], 106, 112, 54)
+        draw_meal_slot("DINNER", data["dinner"], 164, 170, 54)
 
         # Section Divider before Tasks
-        draw.line([(0, 226 * SCALE), (CANVAS_W, 226 * SCALE)], fill=0, width=2 * SCALE)
+        draw.line([(0, 222), (PANEL_WIDTH, 222)], fill=0, width=2)
 
-        # 4. DUAL-COLUMN TASK CARDS (y: 230 to 296px)
+        # --------------------------------------------------------------------
+        # 4. DUAL-COLUMN TASK CARDS (y: 226 to 294px)
+        # --------------------------------------------------------------------
         # Left Card: TODAY'S PREP
-        draw.rectangle([6 * SCALE, 230 * SCALE, 196 * SCALE, 296 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([6 * SCALE, 230 * SCALE, 196 * SCALE, 247 * SCALE], fill=0)
-        draw.text((10 * SCALE, 232 * SCALE), "TODAY'S PREP", font=f_task_hdr, fill=255)
-        draw.rectangle([12 * SCALE, 254 * SCALE, 22 * SCALE, 264 * SCALE], outline=0, width=SCALE)
-        draw_large_multilingual_text(draw, data["task1"], 26, 250, 166, 42, max_size=14, min_size=12, max_lines=3, fill=0)
+        draw.rectangle([6, 226, 196, 294], outline=0, width=1)
+        draw.rectangle([6, 226, 196, 241], fill=0)
+        draw.text((10, 227), "TODAY'S PREP", font=f_task_hdr, fill=1)
+        draw.rectangle([12, 248, 22, 258], outline=0, width=1)
+        draw_multilingual_text(draw, data["task1"], 26, 245, 166, 46, max_size=12, min_size=10, max_lines=3, fill=0)
 
         # Right Card: TOMORROW'S PREP
-        draw.rectangle([202 * SCALE, 230 * SCALE, 394 * SCALE, 296 * SCALE], outline=0, width=SCALE)
-        draw.rectangle([202 * SCALE, 230 * SCALE, 394 * SCALE, 247 * SCALE], fill=0)
-        draw.text((206 * SCALE, 232 * SCALE), "TOMORROW'S PREP", font=f_task_hdr, fill=255)
-        draw.rectangle([208 * SCALE, 254 * SCALE, 218 * SCALE, 264 * SCALE], outline=0, width=SCALE)
-        draw_large_multilingual_text(draw, data["task2"], 222, 250, 168, 42, max_size=14, min_size=12, max_lines=3, fill=0)
+        draw.rectangle([202, 226, 394, 294], outline=0, width=1)
+        draw.rectangle([202, 226, 394, 241], fill=0)
+        draw.text((206, 227), "TOMORROW'S PREP", font=f_task_hdr, fill=1)
+        draw.rectangle([208, 248, 218, 258], outline=0, width=1)
+        draw_multilingual_text(draw, data["task2"], 222, 245, 168, 46, max_size=12, min_size=10, max_lines=3, fill=0)
 
         # Perimeter Frame
-        draw.rectangle([0, 0, CANVAS_W - 1, CANVAS_H - 1], outline=0, width=2 * SCALE)
+        draw.rectangle([0, 0, PANEL_WIDTH - 1, PANEL_HEIGHT - 1], outline=0, width=2)
 
-        # Morphological Stem-Dilation Kernel (Locks continuous black lines on physical EPD)
-        img_dilated = img_2x.filter(ImageFilter.MinFilter(3))
-        img_downscaled = img_dilated.resize((PANEL_WIDTH, PANEL_HEIGHT), resample=Image.LANCZOS)
-        
-        # High-Contrast Thresholding (snaps anti-aliased gray to solid opaque black)
-        img_1bit = img_downscaled.point(lambda p: 255 if p > 180 else 0, mode="1")
-
+        # ====================================================================
+        # HARDWARE-ALIGNED BYTE PACKER
+        # GxEPD2 expects 1 = Black Ink, 0 = White Background for drawBitmap
+        # Mode "1" in PIL uses 0 = Black, 1 = White.
+        # We invert the bits once so ESP32 receives exact active-high black pixels.
+        # ====================================================================
         if "ESP32" in request.headers.get("User-Agent", "") or request.args.get('raw') == '1':
-            img_epd = ImageOps.invert(img_1bit.convert("L")).point(lambda p: 255 if p > 140 else 0, mode="1")
+            img_epd = img.point(lambda p: 0 if p else 1, mode="1")
             return Response(img_epd.tobytes(), mimetype='application/octet-stream')
 
+        # Web browser preview
         buf = io.BytesIO()
-        img_1bit.save(buf, format='BMP')
+        img.save(buf, format='BMP')
         buf.seek(0)
         return send_file(buf, mimetype='image/bmp')
 
@@ -483,21 +490,20 @@ def home():
         <title>MealSync Cloud Service</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 30px; text-align: center; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 30px; text-align: center; }
             .card { background: #1e293b; max-width: 500px; margin: 0 auto; padding: 24px; border-radius: 16px; border: 1px solid #334155; }
-            img { max-width: 100%; border-radius: 8px; margin-top: 16px; }
+            img { max-width: 100%; border-radius: 8px; margin-top: 16px; border: 1px solid #475569; }
             .badge { display: inline-block; background: #334155; padding: 6px 12px; border-radius: 8px; font-size: 13px; margin: 4px; }
         </style>
     </head>
     <body>
         <div class="card">
-            <h2>🍳 MealSync Cloud Engine</h2>
+            <h2>🍳 MealSync Display Stream</h2>
             <div>
                 <span class="badge">Battery: {{ telem['battery_label'] }} ({{ telem['battery_pct'] }}%)</span>
                 <span class="badge">Wi-Fi: {{ telem['wifi_strength'] }}</span>
                 <span class="badge">{{ telem['voltage'] }}V</span>
             </div>
-            <p style="font-size: 12px; color: #94a3b8; margin-top: 12px;">Live 1-bit E-Paper Buffer Stream (SSD1683 / 400×300):</p>
             <img src="/display.bmp" alt="Live E-Paper Stream" />
         </div>
     </body>
